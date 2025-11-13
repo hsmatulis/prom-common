@@ -164,21 +164,24 @@ func TestManager_SecretLifecycle(t *testing.T) {
 
 	// 1. Initial fetch
 	require.Eventuallyf(t, providerConfig.provider.hasFetchedLatest, time.Second, 10*time.Millisecond, "Initial fetch should occur")
-	assert.Equal(t, "initial_secret", cfg.APIKeys[0].Get())
-
 	ready, err := m.SecretsReady(cfg)
 	require.NoError(t, err)
 	assert.Truef(t, ready, "Secrets should be ready after initial fetch")
+	assert.Equal(t, "initial_secret", cfg.APIKeys[0].Get())
 
 	// 2. Scheduled refresh
 	providerConfig.provider.setSecret("refreshed_secret")
 	require.Eventuallyf(t, providerConfig.provider.hasFetchedLatest, time.Second, 10*time.Millisecond, "Scheduled refresh should occur")
+	_, err = m.SecretsReady(cfg)
+	require.NoError(t, err)
 	assert.Equal(t, "refreshed_secret", cfg.APIKeys[0].Get())
 
 	// 3. Triggered refresh
 	providerConfig.provider.setSecret("triggered_secret")
 	cfg.APIKeys[0].TriggerRefresh()
 	require.Eventuallyf(t, providerConfig.provider.hasFetchedLatest, time.Second, 10*time.Millisecond, "Triggered refresh should occur")
+	_, err = m.SecretsReady(cfg)
+	require.NoError(t, err)
 	assert.Equal(t, "triggered_secret", cfg.APIKeys[0].Get())
 }
 
@@ -206,8 +209,13 @@ func TestManager_FetchErrorAndRecovery(t *testing.T) {
 	// Recovery.
 	providerConfig.provider.setFetchError(nil)
 	providerConfig.provider.setSecret("recovered_secret")
-	require.Eventuallyf(t, func() bool { return cfg.APIKeys[0].Get() == "recovered_secret" }, 2*time.Second, 50*time.Millisecond, "Manager should recover after error")
+	require.Eventuallyf(t, func() bool {
+		ready, err := m.SecretsReady(cfg)
+		require.NoError(t, err)
+		return ready
+	}, 2*time.Second, 50*time.Millisecond, "Manager should recover after error")
 
+	assert.Equal(t, "recovered_secret", cfg.APIKeys[0].Get())
 	ready, err = m.SecretsReady(cfg)
 	require.NoError(t, err)
 	assert.Truef(t, ready, "Secrets should be ready after recovery")
@@ -221,6 +229,7 @@ func TestManager_InlineSecret(t *testing.T) {
 			{
 				providerConfig: &InlineProviderConfig{secret: inlineSecret},
 				providerName:   "inline",
+				resolvedSecret: inlineSecret,
 			},
 		},
 	}

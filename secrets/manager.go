@@ -16,7 +16,6 @@ package secrets
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -45,15 +44,14 @@ type Manager struct {
 	mtx                  sync.RWMutex
 	secrets              map[*SecretField]*managedSecret
 	refreshC             chan struct{}
-	allReady             atomic.Bool
 	cancel               context.CancelFunc
 	wg                   sync.WaitGroup
 	// Prometheus metrics
-	lastSuccessfulFetch     *prometheus.GaugeVec
-	secretState             *prometheus.GaugeVec
-	fetchSuccessTotal       *prometheus.CounterVec
-	fetchFailuresTotal      *prometheus.CounterVec
-	fetchDuration           *prometheus.HistogramVec
+	lastSuccessfulFetch *prometheus.GaugeVec
+	secretState         *prometheus.GaugeVec
+	fetchSuccessTotal   *prometheus.CounterVec
+	fetchFailuresTotal  *prometheus.CounterVec
+	fetchDuration       *prometheus.HistogramVec
 }
 
 type managedSecret struct {
@@ -178,23 +176,28 @@ func (m *Manager) registerSecret(path string, s *SecretField) error {
 func (m *Manager) secretReady(s *SecretField) bool {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
-	return !m.secrets[s].fetched.IsZero()
+	ms := m.secrets[s]
+	ready := !ms.fetched.IsZero()
+	if ready {
+		ms.mtx.RLock()
+		s.resolvedSecret = ms.secret
+		ms.mtx.RUnlock()
+	}
+	return ready
 }
 
 func (m *Manager) SecretsReady(config interface{}) (bool, error) {
-	if m.allReady.Load() {
-		return true, nil
-	}
 	paths, err := getSecretFields(config)
 	if err != nil {
 		return false, err
 	}
+	allReady := true
 	for _, field := range paths {
 		if !m.secretReady(field) {
-			return false, nil
+			allReady = false
 		}
 	}
-	return true, nil
+	return allReady, nil
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -213,7 +216,6 @@ func (m *Manager) Stop() {
 	m.cancel()
 	m.wg.Wait()
 }
-
 
 func (m *Manager) get(s *SecretField) string {
 	// TODO: Inline secrets are not managed by the manager yet.
@@ -273,7 +275,6 @@ func (m *Manager) fetchSecretsLoop(ctx context.Context) {
 		m.mtx.RUnlock()
 
 		waitTime := 5 * time.Minute
-		secretsReady := true
 
 		for _, ms := range secretsToCheck {
 			ms.mtx.Lock()
@@ -281,9 +282,6 @@ func (m *Manager) fetchSecretsLoop(ctx context.Context) {
 			timeToRefresh := time.Until(ms.fetched.Add(ms.refreshInterval))
 			refreshNeeded := ms.refreshRequested || timeToRefresh < 0
 			waitTime = min(waitTime, ms.refreshInterval)
-			if ms.fetched.IsZero() {
-				secretsReady = false
-			}
 
 			if ms.fetchInProgress {
 				ms.mtx.Unlock()
@@ -302,7 +300,6 @@ func (m *Manager) fetchSecretsLoop(ctx context.Context) {
 
 			go m.fetchAndStoreSecret(ctx, ms)
 		}
-		m.allReady.Store(secretsReady)
 		timer.Reset(waitTime)
 	}
 }
@@ -355,4 +352,3 @@ func (m *Manager) fetchAndStoreSecret(ctx context.Context, ms *managedSecret) {
 	ms.refreshRequested = false
 	ms.mtx.Unlock()
 }
-

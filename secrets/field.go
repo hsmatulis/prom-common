@@ -27,6 +27,7 @@ type SecretField struct {
 	providerConfig ProviderConfig
 	manager        *Manager
 	settings       SecretFieldSettings
+	resolvedSecret string
 }
 
 type SecretFieldSettings struct {
@@ -124,6 +125,7 @@ func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		s.providerConfig = &InlineProviderConfig{
 			secret: plainSecret,
 		}
+		s.resolvedSecret = plainSecret
 		return nil
 	}
 
@@ -155,12 +157,8 @@ func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-
 func (s *SecretField) Get() string {
-	if s.manager == nil {
-		panic("secret field has not been discovered by a manager; was NewManager(&cfg) called?")
-	}
-	return s.manager.get(s)
+	return s.resolvedSecret
 }
 
 func (s *SecretField) TriggerRefresh() {

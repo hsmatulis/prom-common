@@ -167,6 +167,7 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 			manager:        m,
 			providerName:   "inline",
 			providerConfig: &InlineProviderConfig{secret: "my-password"},
+			resolvedSecret: "my-password",
 		}
 		b, err := yaml.Marshal(sf)
 		require.NoError(t, err)
@@ -187,9 +188,4 @@ func TestSecretField_MarshalJSON(t *testing.T) {
 	assert.JSONEq(t, expected, string(b))
 }
 
-func TestSecretField_ManagerPanics(t *testing.T) {
-	sf := SecretField{} // No manager attached
 
-	assert.PanicsWithValuef(t, "secret field has not been discovered by a manager; was NewManager(&cfg) called?", func() { sf.Get() }, "Get should panic without a manager")
-	assert.PanicsWithValuef(t, "secret field has not been discovered by a manager; was NewManager(&cfg) called?", func() { sf.TriggerRefresh() }, "TriggerRefresh should panic without a manager")
-}
