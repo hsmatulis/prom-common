@@ -141,14 +141,14 @@ func (m *Manager) registerSecret(path string, s *SecretField) error {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	secretId := path
-	if providerId, ok := s.providerConfig.(ProviderConfigId); ok {
-		secretId = providerId.Id()
+	secretID := path
+	if providerID, ok := s.providerConfig.(ProviderConfigID); ok {
+		secretID = providerID.ID()
 	}
 
 	labels := prometheus.Labels{
 		"provider":  s.providerName,
-		"secret_id": secretId,
+		"secret_id": secretID,
 	}
 
 	refreshInterval := s.settings.RefreshInterval
@@ -215,27 +215,6 @@ func (m *Manager) Start(ctx context.Context) {
 func (m *Manager) Stop() {
 	m.cancel()
 	m.wg.Wait()
-}
-
-func (m *Manager) get(s *SecretField) string {
-	// TODO: Inline secrets are not managed by the manager yet.
-	if _, ok := s.providerConfig.(*InlineProviderConfig); ok {
-		provider, err := s.providerConfig.NewProvider()
-		if err != nil {
-			return ""
-		}
-		secret, err := provider.FetchSecret(context.Background())
-		if err != nil {
-			return ""
-		}
-		return secret
-	}
-	m.mtx.RLock()
-	secret := m.secrets[s]
-	m.mtx.RUnlock()
-	secret.mtx.RLock()
-	defer secret.mtx.RUnlock()
-	return secret.secret
 }
 
 func (m *Manager) triggerRefresh(s *SecretField) {

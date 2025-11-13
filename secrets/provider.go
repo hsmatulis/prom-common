@@ -24,9 +24,9 @@ type ProviderConfig interface {
 	Clone() ProviderConfig
 }
 
-type ProviderConfigId interface {
-	// Id returns a string that is equal iff the two provider configs output the same thing.
-	Id() string
+type ProviderConfigID interface {
+	// ID returns a string that is equal iff the two provider configs output the same thing.
+	ID() string
 }
 
 type Provider interface {

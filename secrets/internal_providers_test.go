@@ -53,7 +53,7 @@ func TestFileProviderConfig(t *testing.T) {
 	})
 
 	t.Run("Id", func(t *testing.T) {
-		assert.Equal(t, secretFile, fpc.Id())
+		assert.Equal(t, secretFile, fpc.ID())
 	})
 
 	t.Run("MarshalYAML", func(t *testing.T) {

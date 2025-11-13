@@ -42,7 +42,7 @@ func (fpc *FileProviderConfig) Clone() ProviderConfig {
 	return &FileProviderConfig{Path: fpc.Path}
 }
 
-func (fpc *FileProviderConfig) Id() string {
+func (fpc *FileProviderConfig) ID() string {
 	return fpc.Path
 }
 

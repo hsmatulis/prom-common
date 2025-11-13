@@ -29,11 +29,11 @@ func (*testProvider) FetchSecret(_ context.Context) (string, error) {
 
 type testProviderConfig struct{}
 
-func (tpc *testProviderConfig) NewProvider() (Provider, error) {
+func (*testProviderConfig) NewProvider() (Provider, error) {
 	return &testProvider{}, nil
 }
 
-func (tpc *testProviderConfig) Clone() ProviderConfig {
+func (*testProviderConfig) Clone() ProviderConfig {
 	return &testProviderConfig{}
 }
 
