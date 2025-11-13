@@ -32,7 +32,6 @@ type SecretField struct {
 
 type SecretFieldSettings struct {
 	RefreshInterval time.Duration `yaml:"refreshInterval,omitempty"`
-	Default         string        `yaml:"default,omitempty"`
 }
 
 func (s SecretField) String() string {
@@ -73,12 +72,12 @@ func (s SecretField) MarshalJSON() ([]byte, error) {
 type mapType = map[string]interface{}
 
 // splitProviderAndSettings separates provider-specific configuration from the generic SecretField settings.
-func splitProviderAndSettings(baseMap mapType) (providerName string, providerData interface{}, settingsMap mapType, err error) {
+func splitProviderAndSettings(provReg *ProviderRegistry, baseMap mapType) (providerName string, providerData interface{}, settingsMap mapType, err error) {
 	settingsMap = make(mapType)
 
 	for k, v := range baseMap {
 		// Check if the key corresponds to a registered provider.
-		if _, err := Providers.Get(k); err == nil {
+		if _, err := provReg.Get(k); err == nil {
 			if providerName != "" {
 				// A provider has already been found, which is an error.
 				return "", nil, nil, fmt.Errorf("secret must contain exactly one provider type, but multiple were found: %s, %s", providerName, k)
@@ -134,7 +133,7 @@ func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		return err
 	}
 
-	providerName, providerConfigData, settingsMap, err := splitProviderAndSettings(baseMap)
+	providerName, providerConfigData, settingsMap, err := splitProviderAndSettings(Providers, baseMap)
 	if err != nil {
 		return err
 	}
