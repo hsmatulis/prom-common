@@ -61,7 +61,6 @@ type managedSecret struct {
 	mtx              sync.RWMutex
 	pendingSecret    string
 	secret           string
-	provider         Provider
 	fetched          time.Time
 	fetchInProgress  bool
 	refreshInterval  time.Duration
@@ -69,6 +68,7 @@ type managedSecret struct {
 	validator        SecretValidator
 	verified         bool
 	metricLabels     prometheus.Labels
+	provider         Provider
 }
 
 // NewManager discovers all SecretField instances within the provided config
@@ -83,7 +83,9 @@ func NewManager(r prometheus.Registerer, config interface{}) (*Manager, error) {
 	}
 	manager.registerMetrics(r)
 	for path, field := range paths {
-		manager.registerSecret(path, field)
+		if err := manager.registerSecret(path, field); err != nil {
+			return nil, err
+		}
 	}
 	return manager, nil
 }
@@ -147,15 +149,20 @@ func (m *Manager) registerMetrics(r prometheus.Registerer) {
 	)
 }
 
-func (m *Manager) registerSecret(path string, s *SecretField) {
+func (m *Manager) registerSecret(path string, s *SecretField) error {
 	s.manager = m
 
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
+	secretId := path
+	if providerId, ok := s.providerConfig.(ProviderConfigId); ok {
+		secretId = providerId.Id()
+	}
+
 	labels := prometheus.Labels{
-		"provider":  s.provider.Name(),
-		"secret_id": path,
+		"provider":  s.providerName,
+		"secret_id": secretId,
 	}
 
 	refreshInterval := s.settings.RefreshInterval
@@ -163,17 +170,23 @@ func (m *Manager) registerSecret(path string, s *SecretField) {
 		refreshInterval = defaultRefreshInterval
 	}
 
+	provider, err := s.providerConfig.NewProvider()
+	if err != nil {
+		return err
+	}
+
 	ms := &managedSecret{
-		provider:        s.provider,
 		validator:       s.validator,
 		refreshInterval: refreshInterval,
 		metricLabels:    labels,
+		provider:        provider,
 	}
 	m.secrets[s] = ms
 	m.secretState.With(labels).Set(stateInitializing)
 	m.fetchSuccessTotal.With(labels).Add(0)
 	m.fetchFailuresTotal.With(labels).Add(0)
 	m.validationFailuresTotal.With(labels).Add(0)
+	return nil
 }
 
 func (m *Manager) secretReady(s *SecretField) bool {
@@ -225,8 +238,17 @@ func (m *Manager) setSecretValidation(s *SecretField, validator SecretValidator)
 }
 
 func (m *Manager) get(s *SecretField) string {
-	if inline, ok := s.provider.(*InlineProvider); ok {
-		return inline.secret
+	// TODO: Inline secrets are not managed by the manager yet.
+	if _, ok := s.providerConfig.(*InlineProviderConfig); ok {
+		provider, err := s.providerConfig.NewProvider()
+		if err != nil {
+			return ""
+		}
+		secret, err := provider.FetchSecret(context.Background())
+		if err != nil {
+			return ""
+		}
+		return secret
 	}
 	m.mtx.RLock()
 	secret := m.secrets[s]

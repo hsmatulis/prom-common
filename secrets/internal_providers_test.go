@@ -24,7 +24,7 @@ import (
 	"go.yaml.in/yaml/v2"
 )
 
-func TestFileProvider(t *testing.T) {
+func TestFileProviderConfig(t *testing.T) {
 	ctx := context.Background()
 	secretContent := "my-super-secret-password"
 	tempDir := t.TempDir()
@@ -33,7 +33,9 @@ func TestFileProvider(t *testing.T) {
 	err := os.WriteFile(secretFile, []byte(secretContent), 0o600)
 	require.NoError(t, err)
 
-	fp := &FileProvider{Path: secretFile}
+	fpc := &FileProviderConfig{Path: secretFile}
+	fp, err := fpc.NewProvider()
+	require.NoError(t, err)
 
 	t.Run("FetchSecret_Success", func(t *testing.T) {
 		content, err := fp.FetchSecret(ctx)
@@ -42,32 +44,32 @@ func TestFileProvider(t *testing.T) {
 	})
 
 	t.Run("FetchSecret_NotFound", func(t *testing.T) {
-		badFP := &FileProvider{Path: filepath.Join(tempDir, "non-existant.txt")}
-		_, err := badFP.FetchSecret(ctx)
+		badFPC := &FileProviderConfig{Path: filepath.Join(tempDir, "non-existant.txt")}
+		badFP, err := badFPC.NewProvider()
+		require.NoError(t, err)
+		_, err = badFP.FetchSecret(ctx)
 		require.Error(t, err)
 		assert.True(t, os.IsNotExist(err))
 	})
 
-	t.Run("Name", func(t *testing.T) {
-		assert.Equal(t, "file", fp.Name())
-	})
-
-	t.Run("Key", func(t *testing.T) {
-		assert.Equal(t, secretFile, fp.Key())
+	t.Run("Id", func(t *testing.T) {
+		assert.Equal(t, secretFile, fpc.Id())
 	})
 
 	t.Run("MarshalYAML", func(t *testing.T) {
-		data, err := fp.MarshalYAML()
+		data, err := fpc.MarshalYAML()
 		require.NoError(t, err)
 		expected := map[string]interface{}{"path": secretFile}
 		assert.Equal(t, expected, data)
 	})
 }
 
-func TestInlineProvider(t *testing.T) {
+func TestInlineProviderConfig(t *testing.T) {
 	ctx := context.Background()
 	secretContent := "my-inline-secret"
-	ip := &InlineProvider{secret: secretContent}
+	ipc := &InlineProviderConfig{secret: secretContent}
+	ip, err := ipc.NewProvider()
+	require.NoError(t, err)
 
 	t.Run("FetchSecret", func(t *testing.T) {
 		content, err := ip.FetchSecret(ctx)
@@ -75,21 +77,13 @@ func TestInlineProvider(t *testing.T) {
 		assert.Equal(t, secretContent, content)
 	})
 
-	t.Run("Name", func(t *testing.T) {
-		assert.Equal(t, "inline", ip.Name())
-	})
-
-	t.Run("Key", func(t *testing.T) {
-		assert.Equal(t, secretContent, ip.Key())
-	})
-
 	t.Run("MarshalYAML", func(t *testing.T) {
-		data, err := ip.MarshalYAML()
+		data, err := ipc.MarshalYAML()
 		require.NoError(t, err)
 		assert.Equal(t, "<secret>", data)
 
 		// Also check the output of a full yaml marshal
-		out, err := yaml.Marshal(ip)
+		out, err := yaml.Marshal(ipc)
 		require.NoError(t, err)
 		assert.Equal(t, "<secret>\n", string(out))
 	})

@@ -28,7 +28,8 @@ type TestCase struct {
 
 func newSF(secret string) SecretField {
 	return SecretField{
-		provider: &InlineProvider{
+		providerName: "inline",
+		providerConfig: &InlineProviderConfig{
 			secret: secret,
 		},
 	}
@@ -42,7 +43,7 @@ func newSFRef(secret string) *SecretField {
 func normalizeSecretPaths(sp secretPaths) map[string]string {
 	normalized := make(map[string]string)
 	for path, ptr := range sp {
-		normalized[path] = ptr.provider.(*InlineProvider).secret
+		normalized[path] = ptr.providerConfig.(*InlineProviderConfig).secret
 	}
 	return normalized
 }

@@ -18,12 +18,21 @@ import (
 	"time"
 )
 
+type ProviderConfig interface {
+	// NewProvider creates a new provider from the config.
+	NewProvider() (Provider, error)
+	// Clone clones the config.
+	Clone() ProviderConfig
+}
+
+type ProviderConfigId interface {
+	// Id returns a string that is equal iff the two provider configs output the same thing.
+	Id() string
+}
+
 type Provider interface {
 	// FetchSecret retrieves the secret value.
 	FetchSecret(ctx context.Context) (string, error)
-
-	// Name returns the provider's name (e.g., "inline").
-	Name() string
 }
 
 // SecretValidator allows for validating a new secret before it is

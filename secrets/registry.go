@@ -15,28 +15,25 @@ package secrets
 
 import "fmt"
 
-type providerFactory = func() Provider
-
 type ProviderRegistry struct {
-	factoryMap map[string]providerFactory
+	providerConfigs map[string]ProviderConfig
 }
 
-func (r *ProviderRegistry) Get(name string) (Provider, error) {
-	if constructor, ok := r.factoryMap[name]; ok {
-		return constructor(), nil
+func (r *ProviderRegistry) Get(name string) (ProviderConfig, error) {
+	if config, ok := r.providerConfigs[name]; ok {
+		return config.Clone(), nil
 	}
 	return nil, fmt.Errorf("unknown provider type: %q", name)
 }
 
-func (r *ProviderRegistry) Register(constructor func() Provider) {
-	name := constructor().Name()
-	if _, ok := r.factoryMap[name]; ok {
+func (r *ProviderRegistry) Register(name string, config ProviderConfig) {
+	if _, ok := r.providerConfigs[name]; ok {
 		panic(fmt.Sprintf("attempt to register duplicate type: %q", name))
 	}
-	if r.factoryMap == nil {
-		r.factoryMap = make(map[string]providerFactory)
+	if r.providerConfigs == nil {
+		r.providerConfigs = make(map[string]ProviderConfig)
 	}
-	r.factoryMap[name] = constructor
+	r.providerConfigs[name] = config
 }
 
 var Providers = &ProviderRegistry{}

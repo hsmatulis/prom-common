@@ -23,10 +23,11 @@ import (
 
 // SecretField is a field containing a secret.
 type SecretField struct {
-	provider  Provider
-	manager   *Manager
-	validator SecretValidator
-	settings  SecretFieldSettings
+	providerName   string
+	providerConfig ProviderConfig
+	manager        *Manager
+	validator      SecretValidator
+	settings       SecretFieldSettings
 }
 
 type SecretFieldSettings struct {
@@ -35,12 +36,12 @@ type SecretFieldSettings struct {
 }
 
 func (s SecretField) String() string {
-	return fmt.Sprintf("SecretField{Provider: %s}", s.provider.Name())
+	return fmt.Sprintf("SecretField{Provider: %s}", s.providerName)
 }
 
 // MarshalYAML implements the yaml.Marshaler interface for SecretField.
 func (s SecretField) MarshalYAML() (interface{}, error) {
-	if s.provider.Name() == "inline" && s.manager != nil && s.manager.MarshalInlineSecrets {
+	if s.providerName == "inline" && s.manager != nil && s.manager.MarshalInlineSecrets {
 		return s.Get(), nil
 	}
 
@@ -56,7 +57,7 @@ func (s SecretField) MarshalYAML() (interface{}, error) {
 	}
 
 	// Add the provider configuration.
-	out[s.provider.Name()] = s.provider
+	out[s.providerName] = s.providerConfig
 	return out, nil
 }
 
@@ -72,18 +73,16 @@ func (s SecretField) MarshalJSON() ([]byte, error) {
 type mapType = map[string]interface{}
 
 // splitProviderAndSettings separates provider-specific configuration from the generic SecretField settings.
-func splitProviderAndSettings(baseMap mapType) (baseProvider Provider, providerData interface{}, settingsMap mapType, err error) {
+func splitProviderAndSettings(baseMap mapType) (providerName string, providerData interface{}, settingsMap mapType, err error) {
 	settingsMap = make(mapType)
-	providerName := ""
 
 	for k, v := range baseMap {
 		// Check if the key corresponds to a registered provider.
-		if p, _ := Providers.Get(k); p != nil {
+		if _, err := Providers.Get(k); err == nil {
 			if providerName != "" {
 				// A provider has already been found, which is an error.
-				return nil, nil, nil, fmt.Errorf("secret must contain exactly one provider type, but multiple were found: %s, %s", providerName, k)
+				return "", nil, nil, fmt.Errorf("secret must contain exactly one provider type, but multiple were found: %s, %s", providerName, k)
 			}
-			baseProvider = p
 			providerName = k
 			providerData = v
 		} else {
@@ -97,12 +96,12 @@ func splitProviderAndSettings(baseMap mapType) (baseProvider Provider, providerD
 		yamlBytes, err := yaml.Marshal(baseMap)
 		if err != nil {
 			// Fallback to the original format if marshalling fails for some reason.
-			return nil, nil, nil, fmt.Errorf("no valid secret provider found in configuration: %v", baseMap)
+			return "", nil, nil, fmt.Errorf("no valid secret provider found in configuration: %v", baseMap)
 		}
-		return nil, nil, nil, fmt.Errorf("no valid secret provider found in configuration:\n%s", string(yamlBytes))
+		return "", nil, nil, fmt.Errorf("no valid secret provider found in configuration:\n%s", string(yamlBytes))
 	}
 
-	return baseProvider, providerData, settingsMap, nil
+	return providerName, providerData, settingsMap, nil
 }
 
 // convertConfig takes a map-like structure and unmarshals it into a typed struct.
@@ -122,7 +121,8 @@ func convertConfig[T any](source interface{}, target T) error {
 func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var plainSecret string
 	if err := unmarshal(&plainSecret); err == nil {
-		s.provider = &InlineProvider{
+		s.providerName = "inline"
+		s.providerConfig = &InlineProviderConfig{
 			secret: plainSecret,
 		}
 		s.validator = DefaultValidator{}
@@ -134,19 +134,25 @@ func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		return err
 	}
 
-	concreteProvider, providerConfig, settingsMap, err := splitProviderAndSettings(baseMap)
+	providerName, providerConfigData, settingsMap, err := splitProviderAndSettings(baseMap)
 	if err != nil {
 		return err
 	}
 
-	if err := convertConfig(providerConfig, concreteProvider); err != nil {
-		return fmt.Errorf("failed to unmarshal into %s provider: %w", concreteProvider.Name(), err)
+	providerConfig, err := Providers.Get(providerName)
+	if err != nil {
+		return err
+	}
+
+	if err := convertConfig(providerConfigData, providerConfig); err != nil {
+		return fmt.Errorf("failed to unmarshal into %s provider: %w", providerName, err)
 	}
 	var settings SecretFieldSettings
 	if err := convertConfig(settingsMap, &settings); err != nil {
 		return fmt.Errorf("failed to unmarshal secret field settings: %w", err)
 	}
-	s.provider = concreteProvider
+	s.providerName = providerName
+	s.providerConfig = providerConfig
 	s.validator = DefaultValidator{}
 	s.settings = settings
 	return nil

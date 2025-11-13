@@ -18,55 +18,65 @@ import (
 	"os"
 )
 
-// FileProvider fetches secrets from a file.
-type FileProvider struct {
-	Path string `yaml:"path" json:"path"`
+type fileProvider struct {
+	path string
 }
 
-func (fp *FileProvider) FetchSecret(_ context.Context) (string, error) {
-	content, err := os.ReadFile(fp.Path)
+func (fp *fileProvider) FetchSecret(_ context.Context) (string, error) {
+	content, err := os.ReadFile(fp.path)
 	if err != nil {
 		return "", err
 	}
 	return string(content), nil
 }
 
-func (*FileProvider) Name() string {
-	return "file"
+type FileProviderConfig struct {
+	Path string `yaml:"path" json:"path"`
 }
 
-func (fp *FileProvider) Key() string {
-	return fp.Path
+func (fpc *FileProviderConfig) NewProvider() (Provider, error) {
+	return &fileProvider{path: fpc.Path}, nil
 }
 
-func (fp *FileProvider) MarshalYAML() (interface{}, error) {
+func (fpc *FileProviderConfig) Clone() ProviderConfig {
+	return &FileProviderConfig{Path: fpc.Path}
+}
+
+func (fpc *FileProviderConfig) Id() string {
+	return fpc.Path
+}
+
+func (fpc *FileProviderConfig) MarshalYAML() (interface{}, error) {
 	return map[string]interface{}{
-		"path": fp.Path,
+		"path": fpc.Path,
 	}, nil
 }
 
-// InlineProvider reads an config secret.
-type InlineProvider struct {
+type inlineProvider struct {
 	secret string
 }
 
-func (ip *InlineProvider) FetchSecret(_ context.Context) (string, error) {
+func (ip *inlineProvider) FetchSecret(_ context.Context) (string, error) {
 	return ip.secret, nil
 }
 
-func (*InlineProvider) Name() string {
-	return "inline"
+type InlineProviderConfig struct {
+	secret string
 }
 
-func (ip *InlineProvider) Key() string {
-	return ip.secret
+func (ipc *InlineProviderConfig) NewProvider() (Provider, error) {
+	return &inlineProvider{secret: ipc.secret}, nil
 }
 
-func (*InlineProvider) MarshalYAML() (interface{}, error) {
+func (ipc *InlineProviderConfig) Clone() ProviderConfig {
+	return &InlineProviderConfig{secret: ipc.secret}
+}
+
+func (*InlineProviderConfig) MarshalYAML() (interface{}, error) {
 	return "<secret>", nil
 }
 
 func init() {
-	Providers.Register(func() Provider { return &InlineProvider{} })
-	Providers.Register(func() Provider { return &FileProvider{} })
+	Providers.Register("inline", &InlineProviderConfig{})
+	Providers.Register("file", &FileProviderConfig{})
 }

@@ -25,16 +25,18 @@ import (
 
 func TestSecretField_UnmarshalYAML(t *testing.T) {
 	tests := []struct {
-		name           string
-		yaml           string
-		expectProvider Provider
-		expectSettings SecretFieldSettings
-		expectErr      string
+		name                 string
+		yaml                 string
+		expectProviderName   string
+		expectProviderConfig ProviderConfig
+		expectSettings       SecretFieldSettings
+		expectErr            string
 	}{
 		{
-			name: "Unmarshal plain string into InlineProvider",
-			yaml: `my_secret_value`,
-			expectProvider: &InlineProvider{
+			name:               "Unmarshal plain string into InlineProvider",
+			yaml:               `my_secret_value`,
+			expectProviderName: "inline",
+			expectProviderConfig: &InlineProviderConfig{
 				secret: "my_secret_value",
 			},
 		},
@@ -44,7 +46,8 @@ func TestSecretField_UnmarshalYAML(t *testing.T) {
 file:
   path: /path/to/secret
 `,
-			expectProvider: &FileProvider{
+			expectProviderName: "file",
+			expectProviderConfig: &FileProviderConfig{
 				Path: "/path/to/secret",
 			},
 		},
@@ -55,7 +58,8 @@ file:
   path: /path/to/secret
 refreshInterval: 5m
 `,
-			expectProvider: &FileProvider{
+			expectProviderName: "file",
+			expectProviderConfig: &FileProviderConfig{
 				Path: "/path/to/secret",
 			},
 			expectSettings: SecretFieldSettings{
@@ -99,8 +103,8 @@ file:
 				assert.Contains(t, err.Error(), tt.expectErr)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectProvider.Name(), sf.provider.Name())
-				assert.Equal(t, tt.expectProvider, sf.provider)
+				assert.Equal(t, tt.expectProviderName, sf.providerName)
+				assert.Equal(t, tt.expectProviderConfig, sf.providerConfig)
 				assert.Equal(t, tt.expectSettings, sf.settings)
 			}
 		})
@@ -110,7 +114,8 @@ file:
 func TestSecretField_MarshalYAML(t *testing.T) {
 	t.Run("Marshal non-inline provider", func(t *testing.T) {
 		sf := SecretField{
-			provider: &FileProvider{Path: "/path/to/token"},
+			providerName:   "file",
+			providerConfig: &FileProviderConfig{Path: "/path/to/token"},
 		}
 		b, err := yaml.Marshal(sf)
 		require.NoError(t, err)
@@ -120,7 +125,8 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 
 	t.Run("Marshal non-inline provider with settings", func(t *testing.T) {
 		sf := SecretField{
-			provider: &FileProvider{Path: "/path/to/token"},
+			providerName:   "file",
+			providerConfig: &FileProviderConfig{Path: "/path/to/token"},
 			settings: SecretFieldSettings{
 				RefreshInterval: 10 * time.Minute,
 			},
@@ -133,7 +139,8 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 
 	t.Run("Marshal inline provider without manager", func(t *testing.T) {
 		sf := SecretField{
-			provider: &InlineProvider{secret: "my-password"},
+			providerName:   "inline",
+			providerConfig: &InlineProviderConfig{secret: "my-password"},
 		}
 		b, err := yaml.Marshal(sf)
 		require.NoError(t, err)
@@ -144,8 +151,9 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 	t.Run("Marshal inline provider with manager and MarshalInlineSecrets=false", func(t *testing.T) {
 		m := &Manager{MarshalInlineSecrets: false}
 		sf := SecretField{
-			manager:  m,
-			provider: &InlineProvider{secret: "my-password"},
+			manager:        m,
+			providerName:   "inline",
+			providerConfig: &InlineProviderConfig{secret: "my-password"},
 		}
 		b, err := yaml.Marshal(sf)
 		require.NoError(t, err)
@@ -156,8 +164,9 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 	t.Run("Marshal inline provider with manager and MarshalInlineSecrets=true", func(t *testing.T) {
 		m := &Manager{MarshalInlineSecrets: true}
 		sf := SecretField{
-			manager:  m,
-			provider: &InlineProvider{secret: "my-password"},
+			manager:        m,
+			providerName:   "inline",
+			providerConfig: &InlineProviderConfig{secret: "my-password"},
 		}
 		b, err := yaml.Marshal(sf)
 		require.NoError(t, err)
@@ -169,7 +178,8 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 func TestSecretField_MarshalJSON(t *testing.T) {
 	// JSON marshaling is just a wrapper around YAML marshaling, so a simple test is sufficient.
 	sf := SecretField{
-		provider: &FileProvider{Path: "/path/to/token"},
+		providerName:   "file",
+		providerConfig: &FileProviderConfig{Path: "/path/to/token"},
 	}
 	b, err := json.Marshal(sf)
 	require.NoError(t, err)

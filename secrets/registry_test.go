@@ -21,16 +21,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testProvider struct {
-	name string
-}
+type testProvider struct{}
 
 func (*testProvider) FetchSecret(_ context.Context) (string, error) {
 	return "test_secret", nil
 }
 
-func (tp *testProvider) Name() string {
-	return tp.name
+type testProviderConfig struct{}
+
+func (tpc *testProviderConfig) NewProvider() (Provider, error) {
+	return &testProvider{}, nil
+}
+
+func (tpc *testProviderConfig) Clone() ProviderConfig {
+	return &testProviderConfig{}
 }
 
 func TestProviderRegistry(t *testing.T) {
@@ -38,11 +42,11 @@ func TestProviderRegistry(t *testing.T) {
 		// Test that providers from init() are registered in the global registry.
 		p, err := Providers.Get("inline")
 		require.NoError(t, err)
-		assert.IsType(t, &InlineProvider{}, p)
+		assert.IsType(t, &InlineProviderConfig{}, p)
 
 		p, err = Providers.Get("file")
 		require.NoError(t, err)
-		assert.IsType(t, &FileProvider{}, p)
+		assert.IsType(t, &FileProviderConfig{}, p)
 	})
 
 	t.Run("GetUnknownProvider", func(t *testing.T) {
@@ -53,23 +57,22 @@ func TestProviderRegistry(t *testing.T) {
 
 	t.Run("RegisterAndGet", func(t *testing.T) {
 		reg := &ProviderRegistry{}
-		constructor := func() Provider { return &testProvider{name: "test"} }
+		config := &testProviderConfig{}
 
-		reg.Register(constructor)
+		reg.Register("test", config)
 		p, err := reg.Get("test")
 		require.NoError(t, err)
-		assert.IsType(t, &testProvider{}, p)
-		assert.Equal(t, "test", p.Name())
+		assert.IsType(t, &testProviderConfig{}, p)
 	})
 
 	t.Run("RegisterDuplicate", func(t *testing.T) {
 		reg := &ProviderRegistry{}
-		constructor1 := func() Provider { return &testProvider{name: "duplicate"} }
-		constructor2 := func() Provider { return &testProvider{name: "duplicate"} }
+		config1 := &testProviderConfig{}
+		config2 := &testProviderConfig{}
 
-		reg.Register(constructor1)
+		reg.Register("duplicate", config1)
 		assert.PanicsWithValue(t, `attempt to register duplicate type: "duplicate"`, func() {
-			reg.Register(constructor2)
+			reg.Register("duplicate", config2)
 		})
 	})
 }

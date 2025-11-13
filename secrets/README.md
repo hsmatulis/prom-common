@@ -7,6 +7,8 @@ The `secrets` package provides a unified way to handle secrets within configurat
 The package is built around a few core concepts:
 
   * `SecretField`: A type used in configuration structs to represent a field that holds a secret. It handles the logic for unmarshaling from different secret sources, and the API for accessing secrets.
+  * `ProviderConfig`: An interface for configuring a secret provider. It includes methods to create a new `Provider` instance and to clone the configuration.
+  * `ProviderConfigId`: An interface for uniquely identifying a `ProviderConfig` instance.
   * `Provider`: An interface for fetching secrets from a specific source (e.g., inline string, file on disk). The package comes with built-in providers, and new ones can be registered.
   * `Manager`: A component that discovers all `SecretField` instances within a configuration struct, manages their lifecycle, and handles periodic refreshing of secrets.
 
@@ -134,15 +136,19 @@ The `secrets` package comes with two built-in providers:
 
 ## Custom Providers
 
-You can extend the functionality by creating your own custom secret providers. A custom provider must implement the `Provider` interface:
+You can extend the functionality by creating your own custom secret providers. A custom provider configuration must implement the `ProviderConfig` interface, and the provider itself must implement the `Provider` interface:
 
 ```go
+type ProviderConfig interface {
+    // NewProvider creates a new provider from the config.
+    NewProvider() (Provider, error)
+    // Clone clones the config.
+    Clone() ProviderConfig
+}
+
 type Provider interface {
     // FetchSecret retrieves the secret value.
     FetchSecret(ctx context.Context) (string, error)
-
-    // Name returns the provider's name (e.g., "inline").
-    Name() string
 }
 ```
 
@@ -152,26 +158,44 @@ Once you have implemented the interface, you need to register a factory function
 package myprovider
 
 import (
-    "context"
-    "github.com/prometheus/common/secrets"
+	"context"
+	"fmt"
+
+	"github.com/prometheus/common/secrets"
 )
 
+// MyCustomProviderConfig implements secrets.ProviderConfig.
+type MyCustomProviderConfig struct {
+	// Example field for configuration
+	Setting string `yaml:"setting"`
+}
+
+func (c *MyCustomProviderConfig) NewProvider() (secrets.Provider, error) {
+	// Here you would create and return an instance of your actual provider
+	// based on the configuration in MyCustomProviderConfig.
+	return &MyCustomProvider{setting: c.Setting}, nil
+}
+
+func (c *MyCustomProviderConfig) Clone() secrets.ProviderConfig {
+	clone := *c
+	return &clone
+}
+
+// MyCustomProvider implements secrets.Provider.
 type MyCustomProvider struct {
-    // ... fields for your provider
+	setting string
 }
 
 func (p *MyCustomProvider) FetchSecret(ctx context.Context) (string, error) {
-    // ... logic to fetch your secret
-}
-
-func (p *MyCustomProvider) Name() string {
-    return "my_custom_provider"
+	// ... logic to fetch your secret using p.setting
+	return fmt.Sprintf("my_secret_from_%s", p.setting), nil
 }
 
 func init() {
-    secrets.Providers.Register(func() secrets.Provider {
-        return &MyCustomProvider{}
-    })
+	// Register a factory function that returns a new, empty ProviderConfig instance.
+	secrets.Providers.RegisterConfig("my_custom_provider", func() secrets.ProviderConfig {
+		return &MyCustomProviderConfig{}
+	})
 }
 ```
 
