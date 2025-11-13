@@ -96,7 +96,6 @@ func (mpc *mockProviderConfig) Clone() ProviderConfig {
 	}
 }
 
-
 // testConfig is a struct used for discovering SecretFields in tests.
 type testConfig struct {
 	APIKeys []SecretField `yaml:"api_keys"`
@@ -220,7 +219,6 @@ func TestManager_FetchErrorAndRecovery(t *testing.T) {
 	require.NoError(t, err)
 	assert.Truef(t, ready, "Secrets should be ready after recovery")
 }
-
 
 func TestManager_InlineSecret(t *testing.T) {
 	inlineSecret := "this-is-inline"

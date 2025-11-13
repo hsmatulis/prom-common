@@ -187,5 +187,3 @@ func TestSecretField_MarshalJSON(t *testing.T) {
 	expected := `{"file":{"path":"/path/to/token"}}`
 	assert.JSONEq(t, expected, string(b))
 }
-
-

@@ -33,4 +33,3 @@ type Provider interface {
 	// FetchSecret retrieves the secret value.
 	FetchSecret(ctx context.Context) (string, error)
 }
-
