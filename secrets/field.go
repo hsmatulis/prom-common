@@ -26,7 +26,6 @@ type SecretField struct {
 	providerName   string
 	providerConfig ProviderConfig
 	manager        *Manager
-	validator      SecretValidator
 	settings       SecretFieldSettings
 }
 
@@ -125,7 +124,6 @@ func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		s.providerConfig = &InlineProviderConfig{
 			secret: plainSecret,
 		}
-		s.validator = DefaultValidator{}
 		return nil
 	}
 
@@ -153,24 +151,10 @@ func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	}
 	s.providerName = providerName
 	s.providerConfig = providerConfig
-	s.validator = DefaultValidator{}
 	s.settings = settings
 	return nil
 }
 
-// SetSecretValidation registers an optional validation function for the secret.
-//
-// When the secret manager fetches a new version of the secret, it will not
-// be used immediately if there is a validator. Instead, the manager will
-// hold the new secret in a pending state and call the provided Validate
-// with it until it returns true, there is an explicit refresh request,
-// there is a time out, or the old secret was never valid.
-func (s *SecretField) SetSecretValidation(validator SecretValidator) {
-	s.validator = validator
-	if s.manager != nil {
-		s.manager.setSecretValidation(s, validator)
-	}
-}
 
 func (s *SecretField) Get() string {
 	if s.manager == nil {

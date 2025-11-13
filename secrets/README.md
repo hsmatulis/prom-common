@@ -199,71 +199,7 @@ func init() {
 }
 ```
 
-## Secret Validation
 
-For secrets that can be rotated (e.g., loaded from a file that gets updated), you can provide an optional validation function. This prevents a broken or partially written secret from being loaded into your application after a rotation. The manager will use the new secret only after your validation function returns `true`.
-
-A common use case is to verify that a new authentication token can successfully access a protected endpoint before it is put into active use. This avoids causing monitoring gaps if, for example, a new bearer token is invalid.
-
-To use this feature, implement the `SecretValidator` interface and attach it to a `SecretField` instance.
-
-Here is an example of a validator that checks if an HTTP endpoint can be reached using the new secret as a bearer token. It performs an `HEAD` request and considers the secret valid if the server responds with any status code other than `401 Unauthorized` or `403 Forbidden`.
-
-```go
-import (
-    "context"
-    "fmt"
-    "net/http"
-
-    "github.com/prometheus/common/secrets"
-)
-
-// HTTPBearerTokenValidator checks if a secret is a valid bearer token for a given URL.
-type HTTPBearerTokenValidator struct {
-    EndpointURL string
-    client      *http.Client
-}
-
-func NewHTTPBearerTokenValidator(url string) *HTTPBearerTokenValidator {
-    return &HTTPBearerTokenValidator{
-        EndpointURL: url,
-        client:      &http.Client{},
-    }
-}
-
-func (v *HTTPBearerTokenValidator) Validate(ctx context.Context, secret string) bool {
-    req, err := http.NewRequestWithContext(ctx, "HEAD", v.EndpointURL, nil)
-    if err != nil {
-        // Could not create the request, so we cannot validate.
-        return false
-    }
-
-    req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", secret))
-
-    resp, err := v.client.Do(req)
-    if err != nil {
-        // The request failed, so we cannot consider this valid.
-        return false
-    }
-    defer resp.Body.Close()
-
-    // If the status is Unauthorized or Forbidden, the token is invalid.
-    // Any other status code (e.g., 200 OK, 404 Not Found) means the token
-    // was accepted for authentication, so we consider it valid for rotation.
-    return resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden
-}
-
-func (v *HTTPBearerTokenValidator) Settings() secrets.ValidationSettings {
-    // Return custom settings or use the default.
-    return secrets.DefaultValidationSettings()
-}
-
-// In your application code, after unmarshaling the config:
-validator := NewHTTPBearerTokenValidator("https://my-protected-api.com/v1/status")
-cfg.APIKey.SetSecretValidation(validator)
-```
-
-The `ValidationSettings` allow you to configure timeouts, backoff, and retry attempts for the validation logic, making the process resilient to temporary network issues.
 
 ## Prometheus Metrics
 
@@ -276,7 +212,6 @@ The following metrics are available, all labeled with `provider` and `secret_id`
   * `prometheus_remote_secret_fetch_success_total`: (Counter) Total number of successful secret fetches.
   * `prometheus_remote_secret_fetch_failures_total`: (Counter) Total number of failed secret fetches.
   * `prometheus_remote_secret_fetch_duration_seconds`: (Histogram) Duration of secret fetch attempts.
-  * `prometheus_remote_secret_validation_failures_total`: (Counter) Total number of failed secret validations.
 
 ## Error Handling and Panics
 

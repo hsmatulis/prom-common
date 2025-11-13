@@ -96,38 +96,6 @@ func (mpc *mockProviderConfig) Clone() ProviderConfig {
 	}
 }
 
-// mockValidator allows controlling validation logic for tests.
-type mockValidator struct {
-	mtx            sync.RWMutex
-	secrets        map[string]bool
-	settings       ValidationSettings
-	verifiedLatest string
-}
-
-func newMockValidator() *mockValidator {
-	return &mockValidator{
-		secrets:  make(map[string]bool),
-		settings: DefaultValidationSettings(),
-	}
-}
-
-func (mv *mockValidator) Validate(_ context.Context, secret string) bool {
-	mv.mtx.Lock()
-	defer mv.mtx.Unlock()
-	m, e := mv.secrets[secret]
-	mv.verifiedLatest = secret
-	return m && e
-}
-
-func (mv *mockValidator) Settings() ValidationSettings {
-	return mv.settings
-}
-
-func (mv *mockValidator) setValid(secret string, isValid bool) {
-	mv.mtx.Lock()
-	defer mv.mtx.Unlock()
-	mv.secrets[secret] = isValid
-}
 
 // testConfig is a struct used for discovering SecretFields in tests.
 type testConfig struct {
@@ -245,49 +213,6 @@ func TestManager_FetchErrorAndRecovery(t *testing.T) {
 	assert.Truef(t, ready, "Secrets should be ready after recovery")
 }
 
-func TestManager_Validation(t *testing.T) {
-	providerConfig := newMockProviderConfig("initial_valid")
-	cfg := &testConfig{
-		APIKeys: []SecretField{
-			{
-				providerConfig: providerConfig,
-				providerName:   "mock",
-				settings:       SecretFieldSettings{RefreshInterval: 10 * time.Millisecond},
-			},
-		},
-	}
-	m, _ := setupManagerTest(t, cfg)
-	validator := newMockValidator()
-	validator.setValid("initial_valid", true)
-	validator.setValid("finally_valid", true)
-	// Make validation super fast for the test.
-	validator.settings.InitialBackoff = 5 * time.Millisecond
-
-	cfg.APIKeys[0].SetSecretValidation(validator)
-
-	// 1. Initial fetch with successful validation.
-	require.Eventuallyf(t, providerConfig.provider.hasFetchedLatest, time.Second, 10*time.Millisecond, "A fetch should be attempted")
-	assert.Equal(t, "initial_valid", cfg.APIKeys[0].Get())
-	require.Eventuallyf(t, func() bool {
-		m.secrets[&cfg.APIKeys[0]].mtx.RLock()
-		defer m.secrets[&cfg.APIKeys[0]].mtx.RUnlock()
-		return m.secrets[&cfg.APIKeys[0]].verified
-	},
-		time.Second, 10*time.Millisecond, "should be eventually valid")
-
-	// 2. Refresh with an invalid secret.
-	providerConfig.provider.setSecret("next_invalid")
-	require.Eventuallyf(t, providerConfig.provider.hasFetchedLatest, time.Second, 10*time.Millisecond, "A refresh should be attempted")
-
-	// Wait a bit to ensure validation is attempted and fails.
-	time.Sleep(100 * time.Millisecond)
-	assert.Equalf(t, "initial_valid", cfg.APIKeys[0].Get(), "Old secret should be kept after validation failure")
-
-	// 3. Refresh again with a now-valid secret.
-	providerConfig.provider.setSecret("finally_valid")
-	require.Eventuallyf(t, providerConfig.provider.hasFetchedLatest, time.Second, 10*time.Millisecond, "Another refresh should be attempted")
-	require.Eventuallyf(t, func() bool { return cfg.APIKeys[0].Get() == "finally_valid" }, time.Second, 10*time.Millisecond, "New secret should be adopted after validation succeeds")
-}
 
 func TestManager_InlineSecret(t *testing.T) {
 	inlineSecret := "this-is-inline"

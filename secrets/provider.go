@@ -15,7 +15,6 @@ package secrets
 
 import (
 	"context"
-	"time"
 )
 
 type ProviderConfig interface {
@@ -35,44 +34,3 @@ type Provider interface {
 	FetchSecret(ctx context.Context) (string, error)
 }
 
-// SecretValidator allows for validating a new secret before it is
-// rotated into active use. If invalid, the old secret will be used
-// while it is still considered valid and has not expired.
-// This interface is optional, to prevent monitoring gaps if the
-// system being scraped hasn't had its secret refreshed yet.
-type SecretValidator interface {
-	Validate(ctx context.Context, secret string) bool
-	Settings() ValidationSettings
-}
-
-// ValidationSettings holds configurable parameters for secret validation.
-type ValidationSettings struct {
-	// Timeout governs the maximum time a single validation attempt can take.
-	Timeout time.Duration
-	// InitialBackoff is the initial backoff duration for re-validating a secret after a failure.
-	InitialBackoff time.Duration
-	// MaxBackoff is the maximum backoff duration for retrying a failed validation.
-	MaxBackoff time.Duration
-	// MaxRetries is the maximum number of retries for a failed validation.
-	MaxRetries int
-}
-
-type DefaultValidator struct{}
-
-func (DefaultValidator) Validate(_ context.Context, _ string) bool {
-	return true
-}
-
-func (DefaultValidator) Settings() ValidationSettings {
-	return DefaultValidationSettings()
-}
-
-// DefaultValidationSettings returns a ValidationSettings struct with default values.
-func DefaultValidationSettings() ValidationSettings {
-	return ValidationSettings{
-		Timeout:        30 * time.Second,
-		InitialBackoff: 1 * time.Second,
-		MaxBackoff:     30 * time.Second,
-		MaxRetries:     10,
-	}
-}

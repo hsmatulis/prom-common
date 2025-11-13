@@ -54,19 +54,15 @@ type Manager struct {
 	fetchSuccessTotal       *prometheus.CounterVec
 	fetchFailuresTotal      *prometheus.CounterVec
 	fetchDuration           *prometheus.HistogramVec
-	validationFailuresTotal *prometheus.CounterVec
 }
 
 type managedSecret struct {
 	mtx              sync.RWMutex
-	pendingSecret    string
 	secret           string
 	fetched          time.Time
 	fetchInProgress  bool
 	refreshInterval  time.Duration
 	refreshRequested bool
-	validator        SecretValidator
-	verified         bool
 	metricLabels     prometheus.Labels
 	provider         Provider
 }
@@ -130,13 +126,6 @@ func (m *Manager) registerMetrics(r prometheus.Registerer) {
 		},
 		labels,
 	)
-	m.validationFailuresTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "prometheus_remote_secret_validation_failures_total",
-			Help: "Total number of failed secret validations.",
-		},
-		labels,
-	)
 
 	// Register all metrics with the provided registry
 	r.MustRegister(
@@ -145,7 +134,6 @@ func (m *Manager) registerMetrics(r prometheus.Registerer) {
 		m.fetchSuccessTotal,
 		m.fetchFailuresTotal,
 		m.fetchDuration,
-		m.validationFailuresTotal,
 	)
 }
 
@@ -176,7 +164,6 @@ func (m *Manager) registerSecret(path string, s *SecretField) error {
 	}
 
 	ms := &managedSecret{
-		validator:       s.validator,
 		refreshInterval: refreshInterval,
 		metricLabels:    labels,
 		provider:        provider,
@@ -185,7 +172,6 @@ func (m *Manager) registerSecret(path string, s *SecretField) error {
 	m.secretState.With(labels).Set(stateInitializing)
 	m.fetchSuccessTotal.With(labels).Add(0)
 	m.fetchFailuresTotal.With(labels).Add(0)
-	m.validationFailuresTotal.With(labels).Add(0)
 	return nil
 }
 
@@ -228,14 +214,6 @@ func (m *Manager) Stop() {
 	m.wg.Wait()
 }
 
-func (m *Manager) setSecretValidation(s *SecretField, validator SecretValidator) {
-	m.mtx.RLock()
-	secret := m.secrets[s]
-	m.mtx.RUnlock()
-	secret.mtx.Lock()
-	secret.validator = validator
-	secret.mtx.Unlock()
-}
 
 func (m *Manager) get(s *SecretField) string {
 	// TODO: Inline secrets are not managed by the manager yet.
@@ -265,8 +243,6 @@ func (m *Manager) triggerRefresh(s *SecretField) {
 	secret.mtx.Lock()
 	defer secret.mtx.Unlock()
 	secret.refreshRequested = true
-	secret.verified = false
-	secret.secret = secret.pendingSecret
 	select {
 	case m.refreshC <- struct{}{}:
 	default:
@@ -373,63 +349,10 @@ func (m *Manager) fetchAndStoreSecret(ctx context.Context, ms *managedSecret) {
 	m.lastSuccessfulFetch.With(labels).SetToCurrentTime()
 	m.secretState.With(labels).Set(stateSuccess)
 
-	ms.pendingSecret = newSecret
+	ms.secret = newSecret
 	ms.fetched = time.Now()
 	ms.fetchInProgress = false
 	ms.refreshRequested = false
-
-	// If a was not verified before, we can swap it immediately
-	if !ms.verified {
-		ms.secret = newSecret
-	}
 	ms.mtx.Unlock()
-	m.validateAndStoreField(ctx, ms, newSecret)
 }
 
-// validateAndStoreField performs validation for a single field, including retry logic.
-func (m *Manager) validateAndStoreField(ctx context.Context, ms *managedSecret, pendingSecret string) {
-	var isValid bool
-
-	ms.mtx.RLock()
-	var validator SecretValidator = DefaultValidator{}
-	if ms.validator != nil {
-		validator = ms.validator
-	}
-	labels := ms.metricLabels
-	vs := validator.Settings()
-	ms.mtx.RUnlock()
-
-	backoff := vs.InitialBackoff
-	for i := 0; i < vs.MaxRetries; i++ {
-		ms.mtx.RLock()
-		shouldRun := ms.pendingSecret == pendingSecret
-		ms.mtx.RUnlock()
-		if !shouldRun {
-			return
-		}
-		validateCtx, cancel := context.WithTimeout(ctx, vs.Timeout)
-		isValid = validator.Validate(validateCtx, pendingSecret)
-		cancel()
-
-		if isValid {
-			break // Success
-		}
-		m.validationFailuresTotal.With(labels).Inc()
-		if i < vs.MaxRetries-1 {
-			select {
-			case <-time.After(backoff):
-				backoff = min(vs.MaxBackoff, backoff*2)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}
-
-	ms.mtx.Lock()
-	defer ms.mtx.Unlock()
-
-	if ms.pendingSecret == pendingSecret {
-		ms.secret = pendingSecret
-		ms.verified = true
-	}
-}
