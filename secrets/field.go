@@ -21,25 +21,25 @@ import (
 	"go.yaml.in/yaml/v2"
 )
 
-// SecretField is a field containing a secret.
-type SecretField struct {
+// Field is a field containing a secret.
+type Field struct {
 	providerName   string
 	providerConfig ProviderConfig
 	manager        *Manager
-	settings       SecretFieldSettings
+	settings       FieldSettings
 	resolvedSecret string
 }
 
-type SecretFieldSettings struct {
+type FieldSettings struct {
 	RefreshInterval time.Duration `yaml:"refreshInterval,omitempty"`
 }
 
-func (s SecretField) String() string {
+func (s Field) String() string {
 	return fmt.Sprintf("SecretField{Provider: %s}", s.providerName)
 }
 
 // MarshalYAML implements the yaml.Marshaler interface for SecretField.
-func (s SecretField) MarshalYAML() (interface{}, error) {
+func (s Field) MarshalYAML() (interface{}, error) {
 	if s.providerName == "inline" && s.manager != nil && s.manager.MarshalInlineSecrets {
 		return s.Get(), nil
 	}
@@ -61,7 +61,7 @@ func (s SecretField) MarshalYAML() (interface{}, error) {
 }
 
 // MarshalJSON implements the json.Marshaler interface for SecretField.
-func (s SecretField) MarshalJSON() ([]byte, error) {
+func (s Field) MarshalJSON() ([]byte, error) {
 	data, err := s.MarshalYAML()
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func convertConfig[T any](source interface{}, target T) error {
 	return nil
 }
 
-func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (s *Field) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var plainSecret string
 	if err := unmarshal(&plainSecret); err == nil {
 		s.providerName = "inline"
@@ -146,7 +146,7 @@ func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err := convertConfig(providerConfigData, providerConfig); err != nil {
 		return fmt.Errorf("failed to unmarshal into %s provider: %w", providerName, err)
 	}
-	var settings SecretFieldSettings
+	var settings FieldSettings
 	if err := convertConfig(settingsMap, &settings); err != nil {
 		return fmt.Errorf("failed to unmarshal secret field settings: %w", err)
 	}
@@ -156,11 +156,11 @@ func (s *SecretField) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func (s *SecretField) Get() string {
+func (s *Field) Get() string {
 	return s.resolvedSecret
 }
 
-func (s *SecretField) TriggerRefresh() {
+func (s *Field) TriggerRefresh() {
 	if s.manager == nil {
 		panic("secret field has not been discovered by a manager; was NewManager(&cfg) called?")
 	}

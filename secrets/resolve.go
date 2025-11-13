@@ -26,9 +26,9 @@ const (
 	maxRecursionDepth = 50
 )
 
-var secretFieldType = reflect.TypeOf(SecretField{})
+var secretFieldType = reflect.TypeOf(Field{})
 
-type secretPaths map[string]*SecretField
+type secretPaths map[string]*Field
 
 type walkItem struct {
 	path []string
@@ -58,7 +58,7 @@ func getSecretFields(v interface{}) (secretPaths, error) {
 			if !val.CanAddr() {
 				return nil, fmt.Errorf("path '%s': found SecretField type that is not addressable", path)
 			}
-			secret, ok := val.Addr().Interface().(*SecretField)
+			secret, ok := val.Addr().Interface().(*Field)
 			if !ok {
 				return nil, fmt.Errorf("path '%s': internal error: matched SecretField type but failed type assertion", path)
 			}

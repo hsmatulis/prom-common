@@ -26,8 +26,8 @@ type TestCase struct {
 	errContains string
 }
 
-func newSF(secret string) SecretField {
-	return SecretField{
+func newSF(secret string) Field {
+	return Field{
 		providerName: "inline",
 		providerConfig: &InlineProviderConfig{
 			secret: secret,
@@ -35,7 +35,7 @@ func newSF(secret string) SecretField {
 	}
 }
 
-func newSFRef(secret string) *SecretField {
+func newSFRef(secret string) *Field {
 	val := newSF(secret)
 	return &val
 }
@@ -49,26 +49,26 @@ func normalizeSecretPaths(sp secretPaths) map[string]string {
 }
 
 type SimpleStruct struct {
-	Secret SecretField
+	Secret Field
 	Day    string
 }
 
 type ManyStruct struct {
-	Birthday          SecretField
-	MothersMaidenName **SecretField
-	FavoriteColors    []SecretField
-	BookReviews       map[string]*SecretField
-	FavoriteMaterial  SecretField
+	Birthday          Field
+	MothersMaidenName **Field
+	FavoriteColors    []Field
+	BookReviews       map[string]*Field
+	FavoriteMaterial  Field
 }
 
 type NestedStruct struct {
 	Nested    SimpleStruct
-	TopSecret SecretField
+	TopSecret Field
 }
 
 type NestedInterfaceStruct struct {
 	NestedInterface interface{}
-	TopSecretI      SecretField
+	TopSecretI      Field
 }
 
 type PtrNestedStruct struct {
@@ -77,15 +77,15 @@ type PtrNestedStruct struct {
 }
 
 type PrivateField struct {
-	Exported SecretField
-	secret   SecretField
+	Exported Field
+	secret   Field
 }
 type PrivateNestedField struct {
 	Nested PrivateField
 }
 
 type DeeplyNestedStruct struct {
-	S SecretField
+	S Field
 	D *DeeplyNestedStruct
 }
 
@@ -119,17 +119,17 @@ func TestGetSecretFields(t *testing.T) {
 			name: "Struct with multiple SecretFields and nested pointers",
 			input: &ManyStruct{
 				Birthday: newSF("happy_birthday"),
-				MothersMaidenName: func() **SecretField {
+				MothersMaidenName: func() **Field {
 					s := newSF("maiden_name")
 					p := &s
 					return &p
 				}(),
-				FavoriteColors: []SecretField{
+				FavoriteColors: []Field{
 					newSF("red"),
 					newSF("blue"),
 					newSF("green"),
 				},
-				BookReviews: map[string]*SecretField{
+				BookReviews: map[string]*Field{
 					"The Hitchhiker's Guide to the Galaxy": newSFRef("hitchhiker_secret"),
 					"The Great Gatsby":                     newSFRef("gatsby_secret"),
 				},
@@ -294,7 +294,7 @@ func TestGetSecretFields(t *testing.T) {
 		},
 		{
 			name: "Slice of SecretFields",
-			input: &[]SecretField{
+			input: &[]Field{
 				newSF("slice_secret_1"),
 				newSF("slice_secret_2"),
 			},
@@ -305,7 +305,7 @@ func TestGetSecretFields(t *testing.T) {
 		},
 		{
 			name: "Map with SecretField values",
-			input: &map[string]SecretField{
+			input: &map[string]Field{
 				"key1": newSF("map_secret_1"),
 				"key2": newSF("map_secret_2"),
 			},
@@ -313,7 +313,7 @@ func TestGetSecretFields(t *testing.T) {
 		},
 		{
 			name: "Map with SecretField values references",
-			input: &map[string]*SecretField{
+			input: &map[string]*Field{
 				"key1": newSFRef("map_secret_1"),
 				"key2": newSFRef("map_secret_2"),
 			},

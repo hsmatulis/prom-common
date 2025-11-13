@@ -29,7 +29,7 @@ func TestSecretField_UnmarshalYAML(t *testing.T) {
 		yaml                 string
 		expectProviderName   string
 		expectProviderConfig ProviderConfig
-		expectSettings       SecretFieldSettings
+		expectSettings       FieldSettings
 		expectErr            string
 	}{
 		{
@@ -62,7 +62,7 @@ refreshInterval: 5m
 			expectProviderConfig: &FileProviderConfig{
 				Path: "/path/to/secret",
 			},
-			expectSettings: SecretFieldSettings{
+			expectSettings: FieldSettings{
 				RefreshInterval: 5 * time.Minute,
 			},
 		},
@@ -95,7 +95,7 @@ file:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var sf SecretField
+			var sf Field
 			err := yaml.Unmarshal([]byte(tt.yaml), &sf)
 
 			if tt.expectErr != "" {
@@ -113,7 +113,7 @@ file:
 
 func TestSecretField_MarshalYAML(t *testing.T) {
 	t.Run("Marshal non-inline provider", func(t *testing.T) {
-		sf := SecretField{
+		sf := Field{
 			providerName:   "file",
 			providerConfig: &FileProviderConfig{Path: "/path/to/token"},
 		}
@@ -124,10 +124,10 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 	})
 
 	t.Run("Marshal non-inline provider with settings", func(t *testing.T) {
-		sf := SecretField{
+		sf := Field{
 			providerName:   "file",
 			providerConfig: &FileProviderConfig{Path: "/path/to/token"},
-			settings: SecretFieldSettings{
+			settings: FieldSettings{
 				RefreshInterval: 10 * time.Minute,
 			},
 		}
@@ -138,7 +138,7 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 	})
 
 	t.Run("Marshal inline provider without manager", func(t *testing.T) {
-		sf := SecretField{
+		sf := Field{
 			providerName:   "inline",
 			providerConfig: &InlineProviderConfig{secret: "my-password"},
 		}
@@ -150,7 +150,7 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 
 	t.Run("Marshal inline provider with manager and MarshalInlineSecrets=false", func(t *testing.T) {
 		m := &Manager{MarshalInlineSecrets: false}
-		sf := SecretField{
+		sf := Field{
 			manager:        m,
 			providerName:   "inline",
 			providerConfig: &InlineProviderConfig{secret: "my-password"},
@@ -163,7 +163,7 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 
 	t.Run("Marshal inline provider with manager and MarshalInlineSecrets=true", func(t *testing.T) {
 		m := &Manager{MarshalInlineSecrets: true}
-		sf := SecretField{
+		sf := Field{
 			manager:        m,
 			providerName:   "inline",
 			providerConfig: &InlineProviderConfig{secret: "my-password"},
@@ -178,7 +178,7 @@ func TestSecretField_MarshalYAML(t *testing.T) {
 
 func TestSecretField_MarshalJSON(t *testing.T) {
 	// JSON marshaling is just a wrapper around YAML marshaling, so a simple test is sufficient.
-	sf := SecretField{
+	sf := Field{
 		providerName:   "file",
 		providerConfig: &FileProviderConfig{Path: "/path/to/token"},
 	}

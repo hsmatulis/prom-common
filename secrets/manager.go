@@ -42,7 +42,7 @@ const (
 type Manager struct {
 	MarshalInlineSecrets bool
 	mtx                  sync.RWMutex
-	secrets              map[*SecretField]*managedSecret
+	secrets              map[*Field]*managedSecret
 	refreshC             chan struct{}
 	cancel               context.CancelFunc
 	wg                   sync.WaitGroup
@@ -73,7 +73,7 @@ func NewManager(r prometheus.Registerer, config interface{}) (*Manager, error) {
 		return nil, err
 	}
 	manager := &Manager{
-		secrets: make(map[*SecretField]*managedSecret),
+		secrets: make(map[*Field]*managedSecret),
 	}
 	manager.registerMetrics(r)
 	for path, field := range paths {
@@ -135,7 +135,7 @@ func (m *Manager) registerMetrics(r prometheus.Registerer) {
 	)
 }
 
-func (m *Manager) registerSecret(path string, s *SecretField) error {
+func (m *Manager) registerSecret(path string, s *Field) error {
 	s.manager = m
 
 	m.mtx.Lock()
@@ -173,7 +173,7 @@ func (m *Manager) registerSecret(path string, s *SecretField) error {
 	return nil
 }
 
-func (m *Manager) secretReady(s *SecretField) bool {
+func (m *Manager) secretReady(s *Field) bool {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 	ms := m.secrets[s]
@@ -217,7 +217,7 @@ func (m *Manager) Stop() {
 	m.wg.Wait()
 }
 
-func (m *Manager) triggerRefresh(s *SecretField) {
+func (m *Manager) triggerRefresh(s *Field) {
 	m.mtx.RLock()
 	secret := m.secrets[s]
 	m.mtx.RUnlock()

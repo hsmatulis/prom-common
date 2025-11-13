@@ -98,7 +98,7 @@ func (mpc *mockProviderConfig) Clone() ProviderConfig {
 
 // testConfig is a struct used for discovering SecretFields in tests.
 type testConfig struct {
-	APIKeys []SecretField `yaml:"api_keys"`
+	APIKeys []Field `yaml:"api_keys"`
 }
 
 func setupManagerTest(t *testing.T, cfg *testConfig) (*Manager, *prometheus.Registry) {
@@ -130,7 +130,7 @@ func TestNewManager(t *testing.T) {
 	provider2 := newMockProviderConfig("secret2")
 
 	cfg := &testConfig{
-		APIKeys: []SecretField{
+		APIKeys: []Field{
 			{providerConfig: provider1, providerName: "mock"},
 			{providerConfig: provider2, providerName: "mock"},
 			{providerConfig: &InlineProviderConfig{secret: "inline_secret"}, providerName: "inline"},
@@ -150,11 +150,11 @@ func TestNewManager(t *testing.T) {
 func TestManager_SecretLifecycle(t *testing.T) {
 	providerConfig := newMockProviderConfig("initial_secret")
 	cfg := &testConfig{
-		APIKeys: []SecretField{
+		APIKeys: []Field{
 			{
 				providerConfig: providerConfig,
 				providerName:   "mock",
-				settings:       SecretFieldSettings{RefreshInterval: 50 * time.Millisecond},
+				settings:       FieldSettings{RefreshInterval: 50 * time.Millisecond},
 			},
 		},
 	}
@@ -188,7 +188,7 @@ func TestManager_FetchErrorAndRecovery(t *testing.T) {
 	providerConfig := newMockProviderConfig("")
 	providerConfig.provider.setFetchError(errors.New("fetch failed"))
 	cfg := &testConfig{
-		APIKeys: []SecretField{
+		APIKeys: []Field{
 			{
 				providerConfig: providerConfig,
 				providerName:   "mock",
@@ -223,7 +223,7 @@ func TestManager_FetchErrorAndRecovery(t *testing.T) {
 func TestManager_InlineSecret(t *testing.T) {
 	inlineSecret := "this-is-inline"
 	cfg := &testConfig{
-		APIKeys: []SecretField{
+		APIKeys: []Field{
 			{
 				providerConfig: &InlineProviderConfig{secret: inlineSecret},
 				providerName:   "inline",
