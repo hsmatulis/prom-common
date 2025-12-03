@@ -15,6 +15,7 @@ package secrets
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -58,6 +59,7 @@ const (
 type Manager struct {
 	mtx       sync.RWMutex
 	secrets   map[string]*managedSecret
+	hydrating bool
 	providers *ProviderRegistry
 	refreshC  chan struct{}
 	cancel    context.CancelFunc
@@ -74,7 +76,7 @@ type managedSecret struct {
 	mtx              sync.RWMutex
 	secret           string
 	fetched          time.Time
-	fetchInProgress  bool
+	fetchCancel      context.CancelFunc
 	refreshInterval  time.Duration
 	refreshRequested bool
 	metricLabels     prometheus.Labels
@@ -98,20 +100,12 @@ type managedSecret struct {
 //   - `prometheus_remote_secret_fetch_duration_seconds`: (Histogram) Duration of
 //     secret fetch attempts.
 func NewManager(r prometheus.Registerer, providers *ProviderRegistry, config interface{}) (*Manager, error) {
-	paths, err := getSecretFields(config)
-	if err != nil {
-		return nil, err
-	}
 	manager := &Manager{
 		secrets:   make(map[string]*managedSecret),
 		providers: providers,
 	}
 	manager.registerMetrics(r)
-	for path, field := range paths {
-		if err := manager.registerSecret(path, field); err != nil {
-			return nil, err
-		}
-	}
+	manager.HydrateConfig(config)
 	return manager, nil
 }
 
@@ -161,6 +155,10 @@ func (m *Manager) registerSecret(path string, s *Field) error {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
+	if s.state != nil {
+		return fmt.Errorf("secrets.Field %s has already been hydrated.", path)
+	}
+
 	state, err := s.parseRawConfig(m.providers, path)
 	if err != nil {
 		return err
@@ -200,31 +198,33 @@ func (m *Manager) registerSecret(path string, s *Field) error {
 	return nil
 }
 
-func (m *Manager) secretReady(s *Field) bool {
-	m.mtx.RLock()
-	defer m.mtx.RUnlock()
+func (m *Manager) HydrateConfig(config interface{}) error {
+	paths, err := getSecretFields(config)
+	if err != nil {
+		return err
+	}
+	for field, path := range paths {
+		if err := m.registerSecret(path, field); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
+func (m *Manager) triggerRefresh(s *Field) {
+	m.mtx.RLock()
 	ms := m.secrets[s.state.id()]
+	m.mtx.RUnlock()
+
 	ms.mtx.Lock()
 	defer ms.mtx.Unlock()
 
-	s.state.mutex.Lock()
-	defer s.state.mutex.Unlock()
-
-	ready := !ms.fetched.IsZero()
-	if ready {
-		s.state.value = ms.secret
+	ms.refreshRequested = true
+	select {
+	case m.refreshC <- struct{}{}:
+	default:
+		// a refresh is already pending, do nothing
 	}
-	if s.state.requestRefresh {
-		s.state.requestRefresh = false
-		ms.refreshRequested = true
-		select {
-		case m.refreshC <- struct{}{}:
-		default:
-			// a refresh is already pending, do nothing
-		}
-	}
-	return ready
 }
 
 // SecretsReady checks if all secrets in the provided config have been
@@ -233,17 +233,8 @@ func (m *Manager) secretReady(s *Field) bool {
 // This method should be called before accessing any secret values to ensure
 // that they are available.
 func (m *Manager) SecretsReady(config interface{}) (bool, error) {
-	paths, err := getSecretFields(config)
-	if err != nil {
-		return false, err
-	}
-	allReady := true
-	for _, field := range paths {
-		if !m.secretReady(field) {
-			allReady = false
-		}
-	}
-	return allReady, nil
+	// TODO: remove
+	return false, nil
 }
 
 // Start launches the background goroutine that periodically fetches secrets.
@@ -296,7 +287,7 @@ func (m *Manager) fetchSecretsLoop(ctx context.Context) {
 			refreshNeeded := ms.refreshRequested || timeToRefresh < 0
 			waitTime = min(waitTime, ms.refreshInterval)
 
-			if ms.fetchInProgress {
+			if ms.fetchCancel != nil {
 				ms.mtx.Unlock()
 				continue
 			}
@@ -308,10 +299,11 @@ func (m *Manager) fetchSecretsLoop(ctx context.Context) {
 				}
 				continue
 			}
-			ms.fetchInProgress = true
+			var fetchCtx context.Context
+			fetchCtx, ms.fetchCancel = context.WithCancel(ctx)
 			ms.mtx.Unlock()
 
-			go m.fetchAndStoreSecret(ctx, ms)
+			go m.fetchAndStoreSecret(fetchCtx, ms)
 		}
 		timer.Reset(waitTime)
 	}
@@ -324,7 +316,6 @@ func (m *Manager) fetchAndStoreSecret(ctx context.Context, ms *managedSecret) {
 	var err error
 	ms.mtx.RLock()
 	provider := ms.provider
-	labels := ms.metricLabels
 	hasBeenFetchedBefore := !ms.fetched.IsZero()
 	ms.mtx.RUnlock()
 
@@ -339,29 +330,35 @@ func (m *Manager) fetchAndStoreSecret(ctx context.Context, ms *managedSecret) {
 			break // Success
 		}
 
-		m.fetchFailuresTotal.With(labels).Inc()
+		ms.mtx.RLock()
+		m.fetchFailuresTotal.With(ms.metricLabels).Inc()
 		if hasBeenFetchedBefore {
-			m.secretState.With(labels).Set(stateStale)
+			m.secretState.With(ms.metricLabels).Set(stateStale)
 		} else {
-			m.secretState.With(labels).Set(stateError)
+			m.secretState.With(ms.metricLabels).Set(stateError)
 		}
+		ms.mtx.RUnlock()
 
 		select {
 		case <-time.After(backoff):
 			backoff = min(fetchMaxBackoff, backoff*2)
 		case <-ctx.Done():
+			ms.mtx.Lock()
+			ms.fetchCancel = nil
+			ms.refreshRequested = false
+			ms.mtx.Unlock()
 			return
 		}
 	}
 	ms.mtx.Lock()
 
-	m.fetchSuccessTotal.With(labels).Inc()
-	m.lastSuccessfulFetch.With(labels).SetToCurrentTime()
-	m.secretState.With(labels).Set(stateSuccess)
+	m.fetchSuccessTotal.With(ms.metricLabels).Inc()
+	m.lastSuccessfulFetch.With(ms.metricLabels).SetToCurrentTime()
+	m.secretState.With(ms.metricLabels).Set(stateSuccess)
 
 	ms.secret = newSecret
 	ms.fetched = time.Now()
-	ms.fetchInProgress = false
+	ms.fetchCancel = nil
 	ms.refreshRequested = false
 	ms.mtx.Unlock()
 }

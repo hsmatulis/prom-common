@@ -96,7 +96,7 @@ db_password:
 	}
 
 	// Access the secret.
-	fmt.Printf("DB Password: %s\n", cfg.DBPassword.Get())
+	fmt.Printf("DB Password: %s\n", cfg.DBPassword.Value())
 
 	// Output:
 	// DB Password: secret_from_env

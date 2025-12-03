@@ -28,7 +28,7 @@ const (
 
 var secretFieldType = reflect.TypeOf(Field{})
 
-type secretPaths map[string]*Field
+type secretPaths map[*Field]string
 
 type walkItem struct {
 	path []string
@@ -62,7 +62,7 @@ func getSecretFields(v interface{}) (secretPaths, error) {
 			if !ok {
 				return nil, fmt.Errorf("path '%s': internal error: matched SecretField type but failed type assertion", path)
 			}
-			results[path] = secret
+			results[secret] = path
 			continue
 		}
 		queue = process(path, val, visited, queue)

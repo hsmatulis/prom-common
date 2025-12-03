@@ -44,8 +44,8 @@ func newSFRef(secret string) *Field {
 
 func normalizeSecretPaths(sp secretPaths) map[string]string {
 	normalized := make(map[string]string)
-	for path, ptr := range sp {
-		normalized[path] = ptr.state.config.(*InlineProviderConfig).secret
+	for ptr, path := range sp {
+		normalized[ptr.state.config.(*InlineProviderConfig).secret] = path
 	}
 	return normalized
 }
@@ -53,6 +53,10 @@ func normalizeSecretPaths(sp secretPaths) map[string]string {
 type SimpleStruct struct {
 	Secret Field
 	Day    string
+}
+
+type PrtStruct struct {
+	Secret *Field
 }
 
 type ManyStruct struct {
@@ -106,6 +110,18 @@ func TestGetSecretFields(t *testing.T) {
 			want: map[string]string{
 				"": "pointer",
 			},
+		},
+		{
+			name:  "Pointer to SecretField",
+			input: PrtStruct{Secret: &pointer},
+			want: map[string]string{
+				"": "pointer",
+			},
+		},
+		{
+			name:  "Nil pointer to SecretField",
+			input: PrtStruct{Secret: nil},
+			want:  map[string]string{},
 		},
 		{
 			name: "Simple struct with one SecretField",

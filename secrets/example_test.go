@@ -88,8 +88,8 @@ password:
 	}
 
 	// Access the secret values.
-	apiKey := cfg.APIKey.Get()
-	password := cfg.Password.Get()
+	apiKey := cfg.APIKey.Value()
+	password := cfg.Password.Value()
 
 	fmt.Printf("API Key: %s\n", apiKey)
 	fmt.Printf("Password: %s\n", password)
