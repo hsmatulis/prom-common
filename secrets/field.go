@@ -16,7 +16,6 @@ package secrets
 import (
 	"encoding/json"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -77,13 +76,12 @@ type Field struct {
 }
 
 type fieldState struct {
-	mutex          sync.Mutex
-	path           string
-	settings       FieldSettings
-	providerName   string
-	config         ProviderConfig
-	requestRefresh bool
-	value          string
+	path         string
+	manager      *Manager
+	settings     FieldSettings
+	providerName string
+	config       ProviderConfig
+	value        string
 }
 
 type FieldSettings struct {
@@ -91,8 +89,6 @@ type FieldSettings struct {
 }
 
 func (fs *fieldState) id() string {
-	fs.mutex.Lock()
-	defer fs.mutex.Unlock()
 	providerID := fs.path
 	if provider, ok := fs.config.(ProviderConfigID); ok {
 		providerID = provider.ID()
@@ -178,6 +174,16 @@ func (s *Field) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return unmarshal(&s.rawConfig)
 }
 
+func count(vals ...bool) int {
+	total := 0
+	for _, v := range vals {
+		if v {
+			total += 1
+		}
+	}
+	return total
+}
+
 func (s *Field) parseRawConfig(reg *ProviderRegistry, path string) (*fieldState, error) {
 	var plainSecret string
 	if err := convertConfig(s.rawConfig, &plainSecret); err == nil {
@@ -222,18 +228,23 @@ func (s *Field) parseRawConfig(reg *ProviderRegistry, path string) (*fieldState,
 	}, nil
 }
 
-// Get returns the secret value.
+// Value returns the secret value.
 //
 // This method will panic if the Field has not been discovered by a Manager.
 // To avoid this, ensure that NewManager is called with a pointer to the
 // configuration struct containing the Field.
-func (s *Field) Get() string {
+func (s *Field) Value() string {
 	if s.state == nil {
 		panic("secret field has not been discovered by a manager; was NewManager(&cfg) called?")
 	}
-	s.state.mutex.Lock()
-	defer s.state.mutex.Unlock()
 	return s.state.value
+}
+
+func (s *Field) ValueOrEmpty() string {
+	if s == nil {
+		return ""
+	}
+	return s.Value()
 }
 
 // TriggerRefresh signals the Manager to refresh the secret.
@@ -245,7 +256,4 @@ func (s *Field) TriggerRefresh() {
 	if s.state == nil {
 		panic("secret field has not been discovered by a manager; was NewManager(&cfg) called?")
 	}
-	s.state.mutex.Lock()
-	defer s.state.mutex.Unlock()
-	s.state.requestRefresh = true
 }

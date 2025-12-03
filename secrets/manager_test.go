@@ -181,14 +181,14 @@ api_keys:
 	ready, err := m.SecretsReady(cfg)
 	require.NoError(t, err)
 	assert.Truef(t, ready, "Secrets should be ready after initial fetch")
-	assert.Equal(t, "initial_secret", cfg.APIKeys[0].Get())
+	assert.Equal(t, "initial_secret", cfg.APIKeys[0].Value())
 
 	// 2. Scheduled refresh
 	mock.setSecret("refreshed_secret")
 	require.Eventuallyf(t, mock.hasFetchedLatest, time.Second, 10*time.Millisecond, "Scheduled refresh should occur")
 	_, err = m.SecretsReady(cfg)
 	require.NoError(t, err)
-	assert.Equal(t, "refreshed_secret", cfg.APIKeys[0].Get())
+	assert.Equal(t, "refreshed_secret", cfg.APIKeys[0].Value())
 
 	// 3. Triggered refresh
 	mock.setSecret("triggered_secret")
@@ -196,7 +196,7 @@ api_keys:
 	require.Eventuallyf(t, mock.hasFetchedLatest, time.Second, 10*time.Millisecond, "Triggered refresh should occur")
 	_, err = m.SecretsReady(cfg)
 	require.NoError(t, err)
-	assert.Equal(t, "triggered_secret", cfg.APIKeys[0].Get())
+	assert.Equal(t, "triggered_secret", cfg.APIKeys[0].Value())
 }
 
 func TestManager_FetchErrorAndRecovery(t *testing.T) {
@@ -210,7 +210,7 @@ api_keys:
 
 	// Initial fetch fails.
 	require.Eventuallyf(t, mock.hasFetchedLatest, time.Second, 10*time.Millisecond, "A fetch should be attempted")
-	assert.Emptyf(t, cfg.APIKeys[0].Get(), "Secret should be empty after failed fetch")
+	assert.Emptyf(t, cfg.APIKeys[0].Value(), "Secret should be empty after failed fetch")
 
 	ready, err := m.SecretsReady(cfg)
 	require.NoError(t, err)
@@ -225,7 +225,7 @@ api_keys:
 		return ready
 	}, 2*time.Second, 50*time.Millisecond, "Manager should recover after error")
 
-	assert.Equal(t, "recovered_secret", cfg.APIKeys[0].Get())
+	assert.Equal(t, "recovered_secret", cfg.APIKeys[0].Value())
 	ready, err = m.SecretsReady(cfg)
 	require.NoError(t, err)
 	assert.Truef(t, ready, "Secrets should be ready after recovery")
@@ -238,5 +238,5 @@ api_keys:
   - "%s"
 `, inlineSecret)
 	_, cfg := setupManagerTest(t, content)
-	assert.Equal(t, inlineSecret, cfg.APIKeys[0].Get())
+	assert.Equal(t, inlineSecret, cfg.APIKeys[0].Value())
 }

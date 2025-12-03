@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/prometheus/common/secrets"
 )
 
 // ReservedHeaders that change the connection, are set by Prometheus, or can
@@ -81,9 +83,9 @@ func (h *Headers) Validate() error {
 
 // Header represents the configuration for a single HTTP header.
 type Header struct {
-	Values  []string `yaml:"values,omitempty" json:"values,omitempty"`
-	Secrets []Secret `yaml:"secrets,omitempty" json:"secrets,omitempty"`
-	Files   []string `yaml:"files,omitempty" json:"files,omitempty"`
+	Values  []string        `yaml:"values,omitempty" json:"values,omitempty"`
+	Secrets []secrets.Field `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Files   []string        `yaml:"files,omitempty" json:"files,omitempty"`
 }
 
 // SetDirectory makes headers file relative to the configuration file.
@@ -118,7 +120,7 @@ func (rt *headersRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 			req.Header.Add(n, v)
 		}
 		for _, v := range h.Secrets {
-			req.Header.Add(n, string(v))
+			req.Header.Add(n, string(v.Value()))
 		}
 		for _, v := range h.Files {
 			b, err := os.ReadFile(v)

@@ -14,9 +14,7 @@
 package config
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -34,6 +32,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/mwitkow/go-conntrack"
+	"github.com/prometheus/common/secrets"
 	"go.yaml.in/yaml/v2"
 	"golang.org/x/net/http/httpproxy"
 	"golang.org/x/net/http2"
@@ -136,14 +135,16 @@ func (tv *TLSVersion) String() string {
 
 // BasicAuth contains basic HTTP authentication credentials.
 type BasicAuth struct {
-	Username     string `yaml:"username" json:"username"`
-	UsernameFile string `yaml:"username_file,omitempty" json:"username_file,omitempty"`
-	// UsernameRef is the name of the secret within the secret manager to use as the username.
-	UsernameRef  string `yaml:"username_ref,omitempty" json:"username_ref,omitempty"`
-	Password     Secret `yaml:"password,omitempty" json:"password,omitempty"`
-	PasswordFile string `yaml:"password_file,omitempty" json:"password_file,omitempty"`
-	// PasswordRef is the name of the secret within the secret manager to use as the password.
-	PasswordRef string `yaml:"password_ref,omitempty" json:"password_ref,omitempty"`
+	Username     *secrets.Field `yaml:"username" json:"username"`
+	UsernameFile string         `yaml:"username_file,omitempty" json:"username_file,omitempty"`
+	Password     *secrets.Field `yaml:"password,omitempty" json:"password,omitempty"`
+	PasswordFile string         `yaml:"password_file,omitempty" json:"password_file,omitempty"`
+}
+
+func (c *BasicAuth) PrepareSecrets(h secrets.Hydrator) error {
+	return errors.Join(
+		h.OrFromFile(c.Username, c.UsernameFile),
+		h.OrFromFile(c.Password, c.PasswordFile))
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -157,11 +158,13 @@ func (a *BasicAuth) SetDirectory(dir string) {
 
 // Authorization contains HTTP authorization credentials.
 type Authorization struct {
-	Type            string `yaml:"type,omitempty" json:"type,omitempty"`
-	Credentials     Secret `yaml:"credentials,omitempty" json:"credentials,omitempty"`
-	CredentialsFile string `yaml:"credentials_file,omitempty" json:"credentials_file,omitempty"`
-	// CredentialsRef is the name of the secret within the secret manager to use as credentials.
-	CredentialsRef string `yaml:"credentials_ref,omitempty" json:"credentials_ref,omitempty"`
+	Type            string         `yaml:"type,omitempty" json:"type,omitempty"`
+	Credentials     *secrets.Field `yaml:"credentials,omitempty" json:"credentials,omitempty"`
+	CredentialsFile string         `yaml:"credentials_file,omitempty" json:"credentials_file,omitempty"`
+}
+
+func (a *Authorization) PrepareSecrets(h secrets.Hydrator) error {
+	return h.OrFromFile(a.Credentials, a.CredentialsFile)
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -238,18 +241,12 @@ func (u URL) MarshalJSON() ([]byte, error) {
 
 // OAuth2 is the oauth2 client configuration.
 type OAuth2 struct {
-	ClientID         string `yaml:"client_id" json:"client_id"`
-	ClientSecret     Secret `yaml:"client_secret" json:"client_secret"`
-	ClientSecretFile string `yaml:"client_secret_file" json:"client_secret_file"`
-	// ClientSecretRef is the name of the secret within the secret manager to use as the client
-	// secret.
-	ClientSecretRef          string `yaml:"client_secret_ref" json:"client_secret_ref"`
-	ClientCertificateKeyID   string `yaml:"client_certificate_key_id" json:"client_certificate_key_id"`
-	ClientCertificateKey     Secret `yaml:"client_certificate_key" json:"client_certificate_key"`
-	ClientCertificateKeyFile string `yaml:"client_certificate_key_file" json:"client_certificate_key_file"`
-	// ClientCertificateKeyRef is the name of the secret within the secret manager to use as the client
-	// secret.
-	ClientCertificateKeyRef string `yaml:"client_certificate_key_ref" json:"client_certificate_key_ref"`
+	ClientID                 string         `yaml:"client_id" json:"client_id"`
+	ClientSecret             *secrets.Field `yaml:"client_secret" json:"client_secret"`
+	ClientSecretFile         string         `yaml:"client_secret_file" json:"client_secret_file"`
+	ClientCertificateKeyID   string         `yaml:"client_certificate_key_id" json:"client_certificate_key_id"`
+	ClientCertificateKey     *secrets.Field `yaml:"client_certificate_key" json:"client_certificate_key"`
+	ClientCertificateKeyFile string         `yaml:"client_certificate_key_file" json:"client_certificate_key_file"`
 	// GrantType is the OAuth2 grant type to use. It can be one of
 	// "client_credentials" or "urn:ietf:params:oauth:grant-type:jwt-bearer" (RFC 7523).
 	// Default value is "client_credentials"
@@ -277,22 +274,10 @@ type OAuth2 struct {
 	ProxyConfig    `yaml:",inline"`
 }
 
-// UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (o *OAuth2) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type plain OAuth2
-	if err := unmarshal((*plain)(o)); err != nil {
-		return err
-	}
-	return o.Validate()
-}
-
-// UnmarshalJSON implements the json.Marshaler interface for URL.
-func (o *OAuth2) UnmarshalJSON(data []byte) error {
-	type plain OAuth2
-	if err := json.Unmarshal(data, (*plain)(o)); err != nil {
-		return err
-	}
-	return o.Validate()
+func (o *OAuth2) PrepareSecrets(h secrets.Hydrator) error {
+	return errors.Join(
+		h.OrFromFile(o.ClientSecret, o.ClientSecretFile),
+		h.OrFromFile(o.ClientCertificateKey, o.ClientCertificateKeyFile))
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -338,7 +323,7 @@ type HTTPClientConfig struct {
 	OAuth2 *OAuth2 `yaml:"oauth2,omitempty" json:"oauth2,omitempty"`
 	// The bearer token for the targets. Deprecated in favour of
 	// Authorization.Credentials.
-	BearerToken Secret `yaml:"bearer_token,omitempty" json:"bearer_token,omitempty"`
+	BearerToken *secrets.Field `yaml:"bearer_token,omitempty" json:"bearer_token,omitempty"`
 	// The bearer token file for the targets. Deprecated in favour of
 	// Authorization.CredentialsFile.
 	BearerTokenFile string `yaml:"bearer_token_file,omitempty" json:"bearer_token_file,omitempty"`
@@ -384,29 +369,21 @@ func nonZeroCount[T comparable](values ...T) int {
 	return count
 }
 
+func (c *HTTPClientConfig) PrepareSecrets(h secrets.Hydrator) error {
+	return h.OrFromFile(c.BearerToken, c.BearerTokenFile)
+}
+
 // Validate validates the HTTPClientConfig to check only one of BearerToken,
 // BasicAuth and BearerTokenFile is configured. It also validates that ProxyURL
 // is set if ProxyConnectHeader is set.
 func (c *HTTPClientConfig) Validate() error {
 	// Backwards compatibility with the bearer_token field.
-	if len(c.BearerToken) > 0 && len(c.BearerTokenFile) > 0 {
-		return errors.New("at most one of bearer_token & bearer_token_file must be configured")
-	}
-	if (c.BasicAuth != nil || c.OAuth2 != nil) && (len(c.BearerToken) > 0 || len(c.BearerTokenFile) > 0) {
+	if (c.BasicAuth != nil || c.OAuth2 != nil) && c.BearerToken != nil {
 		return errors.New("at most one of basic_auth, oauth2, bearer_token & bearer_token_file must be configured")
 	}
-	if c.BasicAuth != nil && nonZeroCount(c.BasicAuth.Username != "", c.BasicAuth.UsernameFile != "", c.BasicAuth.UsernameRef != "") > 1 {
-		return errors.New("at most one of basic_auth username, username_file & username_ref must be configured")
-	}
-	if c.BasicAuth != nil && nonZeroCount(string(c.BasicAuth.Password) != "", c.BasicAuth.PasswordFile != "", c.BasicAuth.PasswordRef != "") > 1 {
-		return errors.New("at most one of basic_auth password, password_file & password_ref must be configured")
-	}
 	if c.Authorization != nil {
-		if len(c.BearerToken) > 0 || len(c.BearerTokenFile) > 0 {
+		if c.BearerToken != nil {
 			return errors.New("authorization is not compatible with bearer_token & bearer_token_file")
-		}
-		if nonZeroCount(string(c.Authorization.Credentials) != "", c.Authorization.CredentialsFile != "", c.Authorization.CredentialsRef != "") > 1 {
-			return errors.New("at most one of authorization credentials & credentials_file must be configured")
 		}
 		c.Authorization.Type = strings.TrimSpace(c.Authorization.Type)
 		if len(c.Authorization.Type) == 0 {
@@ -419,15 +396,9 @@ func (c *HTTPClientConfig) Validate() error {
 			return errors.New("at most one of basic_auth, oauth2 & authorization must be configured")
 		}
 	} else {
-		if len(c.BearerToken) > 0 {
-			c.Authorization = &Authorization{Credentials: c.BearerToken}
-			c.Authorization.Type = "Bearer"
-			c.BearerToken = ""
-		}
-		if len(c.BearerTokenFile) > 0 {
-			c.Authorization = &Authorization{CredentialsFile: c.BearerTokenFile}
-			c.Authorization.Type = "Bearer"
-			c.BearerTokenFile = ""
+		if c.BearerToken != nil {
+			c.Authorization = &Authorization{Credentials: c.BearerToken, Type: "Bearer"}
+			c.BearerToken = nil
 		}
 	}
 	if c.OAuth2 != nil {
@@ -441,14 +412,9 @@ func (c *HTTPClientConfig) Validate() error {
 			return errors.New("oauth2 token_url must be configured")
 		}
 		if c.OAuth2.GrantType == grantTypeJWTBearer {
-			if nonZeroCount(len(c.OAuth2.ClientCertificateKey) > 0, len(c.OAuth2.ClientCertificateKeyFile) > 0, len(c.OAuth2.ClientCertificateKeyRef) > 0) > 1 {
-				return errors.New("at most one of oauth2 client_certificate_key, client_certificate_key_file & client_certificate_key_ref must be configured using grant-type=urn:ietf:params:oauth:grant-type:jwt-bearer")
-			}
 			if c.OAuth2.SignatureAlgorithm != "" && !slices.Contains(validSignatureAlgorithm, c.OAuth2.SignatureAlgorithm) {
 				return errors.New("valid signature algorithms are RS256, RS384 and RS512")
 			}
-		} else if nonZeroCount(len(c.OAuth2.ClientSecret) > 0, len(c.OAuth2.ClientSecretFile) > 0, len(c.OAuth2.ClientSecretRef) > 0) > 1 {
-			return errors.New("at most one of oauth2 client_secret, client_secret_file & client_secret_ref must be configured using grant-type=client_credentials")
 		}
 	}
 	if err := c.ProxyConfig.Validate(); err != nil {
@@ -463,26 +429,6 @@ func (c *HTTPClientConfig) Validate() error {
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (c *HTTPClientConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type plain HTTPClientConfig
-	*c = DefaultHTTPClientConfig
-	if err := unmarshal((*plain)(c)); err != nil {
-		return err
-	}
-	return c.Validate()
-}
-
-// UnmarshalJSON implements the json.Marshaler interface for URL.
-func (c *HTTPClientConfig) UnmarshalJSON(data []byte) error {
-	type plain HTTPClientConfig
-	*c = DefaultHTTPClientConfig
-	if err := json.Unmarshal(data, (*plain)(c)); err != nil {
-		return err
-	}
-	return c.Validate()
-}
-
-// UnmarshalYAML implements the yaml.Unmarshaler interface.
 func (a *BasicAuth) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type plain BasicAuth
 	return unmarshal((*plain)(a))
@@ -493,7 +439,7 @@ func (a *BasicAuth) UnmarshalYAML(unmarshal func(interface{}) error) error {
 type DialContextFunc func(context.Context, string, string) (net.Conn, error)
 
 // NewTLSConfigFunc returns tls.Config.
-type NewTLSConfigFunc func(context.Context, *TLSConfig, ...TLSConfigOption) (*tls.Config, error)
+type NewTLSConfigFunc func(context.Context, *TLSConfig) (*tls.Config, error)
 
 type httpClientOptions struct {
 	dialContextFunc   DialContextFunc
@@ -503,7 +449,6 @@ type httpClientOptions struct {
 	idleConnTimeout   time.Duration
 	userAgent         string
 	host              string
-	secretManager     SecretManager
 }
 
 // HTTPClientOption defines an option that can be applied to the HTTP client.
@@ -567,31 +512,6 @@ func WithHost(host string) HTTPClientOption {
 	return httpClientOptionFunc(func(opts *httpClientOptions) {
 		opts.host = host
 	})
-}
-
-type secretManagerOption struct {
-	secretManager SecretManager
-}
-
-func (s *secretManagerOption) applyToHTTPClientOptions(opts *httpClientOptions) {
-	opts.secretManager = s.secretManager
-}
-
-func (s *secretManagerOption) applyToTLSConfigOptions(opts *tlsConfigOptions) {
-	opts.secretManager = s.secretManager
-}
-
-// SecretManagerOption is an option for providing a SecretManager.
-type SecretManagerOption interface {
-	TLSConfigOption
-	HTTPClientOption
-}
-
-// WithSecretManager allows setting the secret manager.
-func WithSecretManager(manager SecretManager) SecretManagerOption {
-	return &secretManagerOption{
-		secretManager: manager,
-	}
 }
 
 // NewClient returns a http.Client using the specified http.RoundTripper.
@@ -672,50 +592,27 @@ func NewRoundTripperFromConfigWithContext(ctx context.Context, cfg HTTPClientCon
 		// If a authorization_credentials is provided, create a round tripper that will set the
 		// Authorization header correctly on each request.
 		if cfg.Authorization != nil {
-			credentialsSecret, err := toSecret(opts.secretManager, cfg.Authorization.Credentials, cfg.Authorization.CredentialsFile, cfg.Authorization.CredentialsRef)
-			if err != nil {
-				return nil, fmt.Errorf("unable to use credentials: %w", err)
-			}
-			rt = NewAuthorizationCredentialsRoundTripper(cfg.Authorization.Type, credentialsSecret, rt)
+			rt = NewAuthorizationCredentialsRoundTripper(cfg.Authorization.Type, cfg.Authorization.Credentials, rt)
 		}
 		// Backwards compatibility, be nice with importers who would not have
-		// called Validate().
-		if len(cfg.BearerToken) > 0 || len(cfg.BearerTokenFile) > 0 {
-			bearerSecret, err := toSecret(opts.secretManager, cfg.BearerToken, cfg.BearerTokenFile, "")
-			if err != nil {
-				return nil, fmt.Errorf("unable to use bearer token: %w", err)
-			}
-			rt = NewAuthorizationCredentialsRoundTripper("Bearer", bearerSecret, rt)
+		// called unmarshalled from yaml.
+		if cfg.BearerToken != nil {
+			rt = NewAuthorizationCredentialsRoundTripper("Bearer", cfg.BearerToken, rt)
 		}
 
 		if cfg.BasicAuth != nil {
-			usernameSecret, err := toSecret(opts.secretManager, Secret(cfg.BasicAuth.Username), cfg.BasicAuth.UsernameFile, cfg.BasicAuth.UsernameRef)
-			if err != nil {
-				return nil, fmt.Errorf("unable to use username: %w", err)
-			}
-			passwordSecret, err := toSecret(opts.secretManager, cfg.BasicAuth.Password, cfg.BasicAuth.PasswordFile, cfg.BasicAuth.PasswordRef)
-			if err != nil {
-				return nil, fmt.Errorf("unable to use password: %w", err)
-			}
-			rt = NewBasicAuthRoundTripper(usernameSecret, passwordSecret, rt)
+			rt = NewBasicAuthRoundTripper(cfg.BasicAuth.Username, cfg.BasicAuth.Password, rt)
 		}
 
 		if cfg.OAuth2 != nil {
 			var (
-				oauthCredential SecretReader
-				err             error
+				oauthCredential *secrets.Field
 			)
 
 			if cfg.OAuth2.GrantType == grantTypeJWTBearer {
-				oauthCredential, err = toSecret(opts.secretManager, cfg.OAuth2.ClientCertificateKey, cfg.OAuth2.ClientCertificateKeyFile, cfg.OAuth2.ClientCertificateKeyRef)
-				if err != nil {
-					return nil, fmt.Errorf("unable to use client certificate: %w", err)
-				}
+				oauthCredential = cfg.OAuth2.ClientCertificateKey
 			} else {
-				oauthCredential, err = toSecret(opts.secretManager, cfg.OAuth2.ClientSecret, cfg.OAuth2.ClientSecretFile, cfg.OAuth2.ClientSecretRef)
-				if err != nil {
-					return nil, fmt.Errorf("unable to use client secret: %w", err)
-				}
+				oauthCredential = cfg.OAuth2.ClientSecret
 			}
 			rt = NewOAuth2RoundTripper(oauthCredential, cfg.OAuth2, rt, &opts)
 		}
@@ -732,132 +629,30 @@ func NewRoundTripperFromConfigWithContext(ctx context.Context, cfg HTTPClientCon
 			rt = NewHostRoundTripper(opts.host, rt)
 		}
 
+		if cfg.HTTPHeaders != nil {
+			rt = NewHeadersRoundTripper(cfg.HTTPHeaders, rt)
+		}
 		// Return a new configured RoundTripper.
 		return rt, nil
 	}
 
-	tlsConfig, err := opts.newTLSConfigFunc(ctx, &cfg.TLSConfig, WithSecretManager(opts.secretManager))
+	tlsConfig, err := opts.newTLSConfigFunc(ctx, &cfg.TLSConfig)
 	if err != nil {
 		return nil, err
 	}
-
-	tlsSettings, err := cfg.TLSConfig.roundTripperSettings(opts.secretManager)
-	if err != nil {
-		return nil, err
-	}
-
-	if tlsSettings.immutable() {
-		// No need for a RoundTripper that reloads the files automatically.
-		return newRT(tlsConfig)
-	}
-	return NewTLSRoundTripperWithContext(ctx, tlsConfig, tlsSettings, newRT)
-}
-
-// SecretManager manages secret data mapped to names known as "references" or "refs".
-type SecretManager interface {
-	// Fetch returns the secret data given a secret name indicated by `secretRef`.
-	Fetch(ctx context.Context, secretRef string) (string, error)
-}
-
-type SecretReader interface {
-	Fetch(ctx context.Context) (string, error)
-	Description() string
-	Immutable() bool
-}
-
-type InlineSecret struct {
-	text string
-}
-
-func NewInlineSecret(text string) *InlineSecret {
-	return &InlineSecret{text: text}
-}
-
-func (s *InlineSecret) Fetch(context.Context) (string, error) {
-	return s.text, nil
-}
-
-func (*InlineSecret) Description() string {
-	return "inline"
-}
-
-func (*InlineSecret) Immutable() bool {
-	return true
-}
-
-type FileSecret struct {
-	file string
-}
-
-func NewFileSecret(file string) *FileSecret {
-	return &FileSecret{file: file}
-}
-
-func (s *FileSecret) Fetch(context.Context) (string, error) {
-	fileBytes, err := os.ReadFile(s.file)
-	if err != nil {
-		return "", fmt.Errorf("unable to read file %s: %w", s.file, err)
-	}
-	return strings.TrimSpace(string(fileBytes)), nil
-}
-
-func (s *FileSecret) Description() string {
-	return "file " + s.file
-}
-
-func (*FileSecret) Immutable() bool {
-	return false
-}
-
-// refSecret fetches a single secret from a SecretManager.
-type refSecret struct {
-	ref     string
-	manager SecretManager // manager is expected to be not nil.
-}
-
-func (s *refSecret) Fetch(ctx context.Context) (string, error) {
-	return s.manager.Fetch(ctx, s.ref)
-}
-
-func (s *refSecret) Description() string {
-	return "ref " + s.ref
-}
-
-func (*refSecret) Immutable() bool {
-	return false
-}
-
-// toSecret returns a SecretReader from one of the given sources, assuming exactly
-// one or none of the sources are provided.
-func toSecret(secretManager SecretManager, text Secret, file, ref string) (SecretReader, error) {
-	if text != "" {
-		return NewInlineSecret(string(text)), nil
-	}
-	if file != "" {
-		return NewFileSecret(file), nil
-	}
-	if ref != "" {
-		if secretManager == nil {
-			return nil, errors.New("cannot use secret ref without manager")
-		}
-		return &refSecret{
-			ref:     ref,
-			manager: secretManager,
-		}, nil
-	}
-	return nil, nil
+	return newRT(tlsConfig)
 }
 
 type authorizationCredentialsRoundTripper struct {
 	authType        string
-	authCredentials SecretReader
+	authCredentials *secrets.Field
 	rt              http.RoundTripper
 }
 
 // NewAuthorizationCredentialsRoundTripper adds the authorization credentials
-// read from the provided SecretReader to a request unless the authorization header
+// read from the provided *secrets.Field to a request unless the authorization header
 // has already been set.
-func NewAuthorizationCredentialsRoundTripper(authType string, authCredentials SecretReader, rt http.RoundTripper) http.RoundTripper {
+func NewAuthorizationCredentialsRoundTripper(authType string, authCredentials *secrets.Field, rt http.RoundTripper) http.RoundTripper {
 	return &authorizationCredentialsRoundTripper{authType, authCredentials, rt}
 }
 
@@ -866,17 +661,8 @@ func (rt *authorizationCredentialsRoundTripper) RoundTrip(req *http.Request) (*h
 		return rt.rt.RoundTrip(req)
 	}
 
-	var authCredentials string
-	if rt.authCredentials != nil {
-		var err error
-		authCredentials, err = rt.authCredentials.Fetch(req.Context())
-		if err != nil {
-			return nil, fmt.Errorf("unable to read authorization credentials: %w", err)
-		}
-	}
-
 	req = cloneRequest(req)
-	req.Header.Set("Authorization", fmt.Sprintf("%s %s", rt.authType, authCredentials))
+	req.Header.Set("Authorization", fmt.Sprintf("%s %s", rt.authType, rt.authCredentials.ValueOrEmpty()))
 
 	return rt.rt.RoundTrip(req)
 }
@@ -888,14 +674,14 @@ func (rt *authorizationCredentialsRoundTripper) CloseIdleConnections() {
 }
 
 type basicAuthRoundTripper struct {
-	username SecretReader
-	password SecretReader
+	username *secrets.Field
+	password *secrets.Field
 	rt       http.RoundTripper
 }
 
 // NewBasicAuthRoundTripper will apply a BASIC auth authorization header to a request unless it has
 // already been set.
-func NewBasicAuthRoundTripper(username, password SecretReader, rt http.RoundTripper) http.RoundTripper {
+func NewBasicAuthRoundTripper(username, password *secrets.Field, rt http.RoundTripper) http.RoundTripper {
 	return &basicAuthRoundTripper{username, password, rt}
 }
 
@@ -903,24 +689,8 @@ func (rt *basicAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	if len(req.Header.Get("Authorization")) != 0 {
 		return rt.rt.RoundTrip(req)
 	}
-	var username string
-	var password string
-	if rt.username != nil {
-		var err error
-		username, err = rt.username.Fetch(req.Context())
-		if err != nil {
-			return nil, fmt.Errorf("unable to read basic auth username: %w", err)
-		}
-	}
-	if rt.password != nil {
-		var err error
-		password, err = rt.password.Fetch(req.Context())
-		if err != nil {
-			return nil, fmt.Errorf("unable to read basic auth password: %w", err)
-		}
-	}
 	req = cloneRequest(req)
-	req.SetBasicAuth(username, password)
+	req.SetBasicAuth(rt.username.ValueOrEmpty(), rt.password.ValueOrEmpty())
 	return rt.rt.RoundTrip(req)
 }
 
@@ -937,16 +707,12 @@ type oauth2RoundTripper struct {
 
 	// Required for interaction with Oauth2 server.
 	config          *OAuth2
-	oauthCredential SecretReader
+	oauthCredential *secrets.Field
 	opts            *httpClientOptions
 	client          *http.Client
 }
 
-func NewOAuth2RoundTripper(oauthCredential SecretReader, config *OAuth2, next http.RoundTripper, opts *httpClientOptions) http.RoundTripper {
-	if oauthCredential == nil {
-		oauthCredential = NewInlineSecret("")
-	}
-
+func NewOAuth2RoundTripper(oauthCredential *secrets.Field, config *OAuth2, next http.RoundTripper, opts *httpClientOptions) http.RoundTripper {
 	return &oauth2RoundTripper{
 		config: config,
 		// A correct tokenSource will be added later on.
@@ -961,7 +727,7 @@ type oauth2TokenSourceConfig interface {
 }
 
 func (rt *oauth2RoundTripper) newOauth2TokenSource(req *http.Request, clientCredential string) (client *http.Client, source oauth2.TokenSource, err error) {
-	tlsConfig, err := NewTLSConfig(&rt.config.TLSConfig, WithSecretManager(rt.opts.secretManager))
+	tlsConfig, err := NewTLSConfig(&rt.config.TLSConfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -981,19 +747,7 @@ func (rt *oauth2RoundTripper) newOauth2TokenSource(req *http.Request, clientCred
 	}
 
 	var t http.RoundTripper
-	tlsSettings, err := rt.config.TLSConfig.roundTripperSettings(rt.opts.secretManager)
-	if err != nil {
-		return nil, nil, err
-	}
-	if tlsSettings.immutable() {
-		t, _ = tlsTransport(tlsConfig)
-	} else {
-		t, err = NewTLSRoundTripperWithContext(req.Context(), tlsConfig, tlsSettings, tlsTransport)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
+	t, _ = tlsTransport(tlsConfig)
 	if ua := req.UserAgent(); ua != "" {
 		t = NewUserAgentRoundTripper(ua, t)
 	}
@@ -1049,37 +803,26 @@ func (rt *oauth2RoundTripper) newOauth2TokenSource(req *http.Request, clientCred
 
 func (rt *oauth2RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	var (
-		secret    string
 		needsInit bool
 	)
 
 	rt.mtx.RLock()
-	secret = rt.lastSecret
 	needsInit = rt.lastRT.Source == nil
 	rt.mtx.RUnlock()
 
 	// Fetch the secret if it's our first run or always if the secret can change.
-	if !rt.oauthCredential.Immutable() || needsInit {
-		newSecret, err := rt.oauthCredential.Fetch(req.Context())
+	if needsInit {
+		newSecret := rt.oauthCredential.ValueOrEmpty()
+		// It's a first run. Rebuilt oauth2 setup.
+		client, source, err := rt.newOauth2TokenSource(req, newSecret)
 		if err != nil {
-			return nil, fmt.Errorf("unable to read oauth2 client secret: %w", err)
+			return nil, err
 		}
-		if newSecret != secret || needsInit {
-			// Secret changed or it's a first run. Rebuilt oauth2 setup.
-			client, source, err := rt.newOauth2TokenSource(req, newSecret)
-			if err != nil {
-				return nil, err
-			}
 
-			rt.mtx.Lock()
-			rt.lastSecret = newSecret
-			rt.lastRT.Source = source
-			if rt.client != nil {
-				rt.client.CloseIdleConnections()
-			}
-			rt.client = client
-			rt.mtx.Unlock()
-		}
+		rt.mtx.Lock()
+		rt.lastRT.Source = source
+		rt.client = client
+		rt.mtx.Unlock()
 	}
 
 	rt.mtx.RLock()
@@ -1120,27 +863,13 @@ func cloneRequest(r *http.Request) *http.Request {
 	return r2
 }
 
-type tlsConfigOptions struct {
-	secretManager SecretManager
-}
-
-// TLSConfigOption defines an option that can be applied to the HTTP client.
-type TLSConfigOption interface {
-	applyToTLSConfigOptions(options *tlsConfigOptions)
-}
-
 // NewTLSConfig creates a new tls.Config from the given TLSConfig.
-func NewTLSConfig(cfg *TLSConfig, optFuncs ...TLSConfigOption) (*tls.Config, error) {
-	return NewTLSConfigWithContext(context.Background(), cfg, optFuncs...)
+func NewTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
+	return NewTLSConfigWithContext(context.Background(), cfg)
 }
 
 // NewTLSConfigWithContext creates a new tls.Config from the given TLSConfig.
-func NewTLSConfigWithContext(ctx context.Context, cfg *TLSConfig, optFuncs ...TLSConfigOption) (*tls.Config, error) {
-	opts := tlsConfigOptions{}
-	for _, opt := range optFuncs {
-		opt.applyToTLSConfigOptions(&opts)
-	}
-
+func NewTLSConfigWithContext(ctx context.Context, cfg *TLSConfig) (*tls.Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -1159,17 +888,9 @@ func NewTLSConfigWithContext(ctx context.Context, cfg *TLSConfig, optFuncs ...TL
 
 	// If a CA cert is provided then let's read it in so we can validate the
 	// scrape target's certificate properly.
-	caSecret, err := toSecret(opts.secretManager, Secret(cfg.CA), cfg.CAFile, cfg.CARef)
-	if err != nil {
-		return nil, fmt.Errorf("unable to use CA cert: %w", err)
-	}
-	if caSecret != nil {
-		ca, err := caSecret.Fetch(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read CA cert: %w", err)
-		}
-		if !updateRootCA(tlsConfig, []byte(ca)) {
-			return nil, fmt.Errorf("unable to use specified CA cert %s", caSecret.Description())
+	if cfg.CA != nil {
+		if !updateRootCA(tlsConfig, []byte(cfg.CA.Value())) {
+			return nil, fmt.Errorf("unable to use specified CA cert %s", cfg.CA)
 		}
 	}
 
@@ -1178,17 +899,13 @@ func NewTLSConfigWithContext(ctx context.Context, cfg *TLSConfig, optFuncs ...TL
 	}
 
 	// If a client cert & key is provided then configure TLS config accordingly.
-	if cfg.usingClientCert() && cfg.usingClientKey() {
+	if nonZeroCount(cfg.CA, cfg.Key) == 2 {
 		// Verify that client cert and key are valid.
-		if _, err := cfg.getClientCertificate(ctx, opts.secretManager); err != nil {
+		if _, err := cfg.getClientCertificate(); err != nil {
 			return nil, err
 		}
 		tlsConfig.GetClientCertificate = func(cri *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-			var ctx context.Context
-			if cri != nil {
-				ctx = cri.Context()
-			}
-			return cfg.getClientCertificate(ctx, opts.secretManager)
+			return cfg.getClientCertificate()
 		}
 	}
 
@@ -1198,26 +915,17 @@ func NewTLSConfigWithContext(ctx context.Context, cfg *TLSConfig, optFuncs ...TL
 // TLSConfig configures the options for TLS connections.
 type TLSConfig struct {
 	// Text of the CA cert to use for the targets.
-	CA string `yaml:"ca,omitempty" json:"ca,omitempty"`
+	CA *secrets.Field `yaml:"ca,omitempty" json:"ca,omitempty"`
 	// Text of the client cert file for the targets.
-	Cert string `yaml:"cert,omitempty" json:"cert,omitempty"`
+	Cert *secrets.Field `yaml:"cert,omitempty" json:"cert,omitempty"`
 	// Text of the client key file for the targets.
-	Key Secret `yaml:"key,omitempty" json:"key,omitempty"`
+	Key *secrets.Field `yaml:"key,omitempty" json:"key,omitempty"`
 	// The CA cert to use for the targets.
 	CAFile string `yaml:"ca_file,omitempty" json:"ca_file,omitempty"`
 	// The client cert file for the targets.
 	CertFile string `yaml:"cert_file,omitempty" json:"cert_file,omitempty"`
 	// The client key file for the targets.
 	KeyFile string `yaml:"key_file,omitempty" json:"key_file,omitempty"`
-	// CARef is the name of the secret within the secret manager to use as the CA cert for the
-	// targets.
-	CARef string `yaml:"ca_ref,omitempty" json:"ca_ref,omitempty"`
-	// CertRef is the name of the secret within the secret manager to use as the client cert for
-	// the targets.
-	CertRef string `yaml:"cert_ref,omitempty" json:"cert_ref,omitempty"`
-	// KeyRef is the name of the secret within the secret manager to use as the client key for
-	// the targets.
-	KeyRef string `yaml:"key_ref,omitempty" json:"key_ref,omitempty"`
 	// Used to verify the hostname for the targets.
 	ServerName string `yaml:"server_name,omitempty" json:"server_name,omitempty"`
 	// Disable target certificate validation.
@@ -1238,98 +946,42 @@ func (c *TLSConfig) SetDirectory(dir string) {
 	c.KeyFile = JoinDir(dir, c.KeyFile)
 }
 
-// UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (c *TLSConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type plain TLSConfig
-	if err := unmarshal((*plain)(c)); err != nil {
-		return err
-	}
-	return c.Validate()
+func (c *TLSConfig) PrepareSecrets(h secrets.Hydrator) error {
+	return errors.Join(
+		c.Validate(),
+		h.OrFromFile(c.CA, c.CAFile),
+		h.OrFromFile(c.Cert, c.CertFile),
+		h.OrFromFile(c.Key, c.KeyFile),
+	)
 }
 
 // Validate validates the TLSConfig to check that only one of the inlined or
 // file-based fields for the TLS CA, client certificate, and client key are
 // used.
 func (c *TLSConfig) Validate() error {
-	if nonZeroCount(len(c.CA) > 0, len(c.CAFile) > 0, len(c.CARef) > 0) > 1 {
-		return errors.New("at most one of ca, ca_file & ca_ref must be configured")
+	if nonZeroCount(c.Cert, c.Key) == 1 {
+		return errors.New("Client certificate and client key must be both configured, or both not")
 	}
-	if nonZeroCount(len(c.Cert) > 0, len(c.CertFile) > 0, len(c.CertRef) > 0) > 1 {
-		return errors.New("at most one of cert, cert_file & cert_ref must be configured")
-	}
-	if nonZeroCount(len(c.Key) > 0, len(c.KeyFile) > 0, len(c.KeyRef) > 0) > 1 {
-		return errors.New("at most one of key and key_file must be configured")
-	}
-
-	if c.usingClientCert() && !c.usingClientKey() {
-		return errors.New("exactly one of key or key_file must be configured when a client certificate is configured")
-	} else if c.usingClientKey() && !c.usingClientCert() {
-		return errors.New("exactly one of cert or cert_file must be configured when a client key is configured")
-	}
-
 	return nil
 }
 
-func (c *TLSConfig) usingClientCert() bool {
-	return len(c.Cert) > 0 || len(c.CertFile) > 0 || len(c.CertRef) > 0
-}
-
-func (c *TLSConfig) usingClientKey() bool {
-	return len(c.Key) > 0 || len(c.KeyFile) > 0 || len(c.KeyRef) > 0
-}
-
-func (c *TLSConfig) roundTripperSettings(secretManager SecretManager) (TLSRoundTripperSettings, error) {
-	ca, err := toSecret(secretManager, Secret(c.CA), c.CAFile, c.CARef)
-	if err != nil {
-		return TLSRoundTripperSettings{}, err
-	}
-	cert, err := toSecret(secretManager, Secret(c.Cert), c.CertFile, c.CertRef)
-	if err != nil {
-		return TLSRoundTripperSettings{}, err
-	}
-	key, err := toSecret(secretManager, c.Key, c.KeyFile, c.KeyRef)
-	if err != nil {
-		return TLSRoundTripperSettings{}, err
-	}
+func (c *TLSConfig) roundTripperSettings() TLSRoundTripperSettings {
 	return TLSRoundTripperSettings{
-		CA:   ca,
-		Cert: cert,
-		Key:  key,
-	}, nil
+		CA:   c.CA,
+		Cert: c.Cert,
+		Key:  c.Key,
+	}
 }
 
 // getClientCertificate reads the pair of client cert and key and returns a tls.Certificate.
-func (c *TLSConfig) getClientCertificate(ctx context.Context, secretManager SecretManager) (*tls.Certificate, error) {
-	var (
-		certData, keyData string
-		err               error
-	)
+func (c *TLSConfig) getClientCertificate() (*tls.Certificate, error) {
 
-	certSecret, err := toSecret(secretManager, Secret(c.Cert), c.CertFile, c.CertRef)
-	if err != nil {
-		return nil, fmt.Errorf("unable to use client cert: %w", err)
-	}
-	if certSecret != nil {
-		certData, err = certSecret.Fetch(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read specified client cert: %w", err)
-		}
-	}
-
-	keySecret, err := toSecret(secretManager, c.Key, c.KeyFile, c.KeyRef)
-	if err != nil {
-		return nil, fmt.Errorf("unable to use client key: %w", err)
-	}
-	if keySecret != nil {
-		keyData, err = keySecret.Fetch(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to read specified client key: %w", err)
-		}
-	}
+	certData := c.Cert.ValueOrEmpty()
+	keyData := c.Key.ValueOrEmpty()
 
 	cert, err := tls.X509KeyPair([]byte(certData), []byte(keyData))
 	if err != nil {
-		return nil, fmt.Errorf("unable to use specified client cert (%s) & key (%s): %w", certSecret.Description(), keySecret.Description(), err)
+		return nil, fmt.Errorf("unable to use specified client cert (%s) & key (%s): %w", c.Cert, c.Key, err)
 	}
 
 	return &cert, nil
@@ -1362,140 +1014,9 @@ type tlsRoundTripper struct {
 }
 
 type TLSRoundTripperSettings struct {
-	CA   SecretReader
-	Cert SecretReader
-	Key  SecretReader
-}
-
-func (t *TLSRoundTripperSettings) immutable() bool {
-	return (t.CA == nil || t.CA.Immutable()) && (t.Cert == nil || t.Cert.Immutable()) && (t.Key == nil || t.Key.Immutable())
-}
-
-func NewTLSRoundTripper(
-	cfg *tls.Config,
-	settings TLSRoundTripperSettings,
-	newRT func(*tls.Config) (http.RoundTripper, error),
-) (http.RoundTripper, error) {
-	return NewTLSRoundTripperWithContext(context.Background(), cfg, settings, newRT)
-}
-
-func NewTLSRoundTripperWithContext(
-	ctx context.Context,
-	cfg *tls.Config,
-	settings TLSRoundTripperSettings,
-	newRT func(*tls.Config) (http.RoundTripper, error),
-) (http.RoundTripper, error) {
-	t := &tlsRoundTripper{
-		settings:  settings,
-		newRT:     newRT,
-		tlsConfig: cfg,
-	}
-
-	rt, err := t.newRT(t.tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-	t.rt = rt
-	_, t.hashCAData, t.hashCertData, t.hashKeyData, err = t.getTLSDataWithHash(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return t, nil
-}
-
-func (t *tlsRoundTripper) getTLSDataWithHash(ctx context.Context) ([]byte, []byte, []byte, []byte, error) {
-	var caBytes, certBytes, keyBytes []byte
-
-	if t.settings.CA != nil {
-		ca, err := t.settings.CA.Fetch(ctx)
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("unable to read CA cert: %w", err)
-		}
-		caBytes = []byte(ca)
-	}
-
-	if t.settings.Cert != nil {
-		cert, err := t.settings.Cert.Fetch(ctx)
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("unable to read client cert: %w", err)
-		}
-		certBytes = []byte(cert)
-	}
-
-	if t.settings.Key != nil {
-		key, err := t.settings.Key.Fetch(ctx)
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("unable to read client key: %w", err)
-		}
-		keyBytes = []byte(key)
-	}
-
-	var caHash, certHash, keyHash [32]byte
-
-	if len(caBytes) > 0 {
-		caHash = sha256.Sum256(caBytes)
-	}
-	if len(certBytes) > 0 {
-		certHash = sha256.Sum256(certBytes)
-	}
-	if len(keyBytes) > 0 {
-		keyHash = sha256.Sum256(keyBytes)
-	}
-
-	return caBytes, caHash[:], certHash[:], keyHash[:], nil
-}
-
-// RoundTrip implements the http.RoundTrip interface.
-func (t *tlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	caData, caHash, certHash, keyHash, err := t.getTLSDataWithHash(req.Context())
-	if err != nil {
-		return nil, err
-	}
-
-	t.mtx.RLock()
-	equal := bytes.Equal(caHash, t.hashCAData) &&
-		bytes.Equal(certHash, t.hashCertData) &&
-		bytes.Equal(keyHash, t.hashKeyData)
-	rt := t.rt
-	t.mtx.RUnlock()
-	if equal {
-		// The CA cert hasn't changed, use the existing RoundTripper.
-		return rt.RoundTrip(req)
-	}
-
-	// Create a new RoundTripper.
-	// The cert and key files are read separately by the client
-	// using GetClientCertificate.
-	tlsConfig := t.tlsConfig.Clone()
-	if !updateRootCA(tlsConfig, caData) {
-		if t.settings.CA == nil {
-			return nil, errors.New("unable to use specified CA cert: none configured")
-		}
-		return nil, fmt.Errorf("unable to use specified CA cert %s", t.settings.CA.Description())
-	}
-	rt, err = t.newRT(tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-	t.CloseIdleConnections()
-
-	t.mtx.Lock()
-	t.rt = rt
-	t.hashCAData = caHash
-	t.hashCertData = certHash
-	t.hashKeyData = keyHash
-	t.mtx.Unlock()
-
-	return rt.RoundTrip(req)
-}
-
-func (t *tlsRoundTripper) CloseIdleConnections() {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
-	if ci, ok := t.rt.(closeIdler); ok {
-		ci.CloseIdleConnections()
-	}
+	CA   *secrets.Field
+	Cert *secrets.Field
+	Key  *secrets.Field
 }
 
 type userAgentRoundTripper struct {
